@@ -6,8 +6,8 @@ var overheadViewCanvas = document.getElementById("overheadViewCanvas");
 var pointViewCanvas = document.getElementById("pointViewCanvas");
 
 var minZoom = 1;
-var maxZoom = 20;
-var overheadView = new OverheadAngle(46.91, -121.75, 20);
+var maxZoom = 5;
+var overheadView = new OverheadAngle(46.91, -121.75, 1);
 var tileDirectory = "tiles";
 
 // All tiles which are currently loaded.
@@ -1073,10 +1073,6 @@ function clickEvent(ev) {
 
     console.log("EVENT " + coords.lon + " " + coords.lat + " ELEVATION " +
                 Math.round(elevation * feetPerMeter) + " R " + color.r + " G " + color.g + " B " + color.b);
-/*
-    if (ev.button == 2)
-        rmbCoords = screenCoordinatesToLatlong(zoomFactor, ev.clientX, ev.clientY);
-*/
 }
 window.addEventListener('click', clickEvent);
 
@@ -1165,20 +1161,37 @@ function mousemoveEvent(ev) {
 }
 window.addEventListener('mousemove', mousemoveEvent);
 
+function drawViewCallback(key, options) {
+    var elevation = computeElevation(rmbCoords);
+    var feetPerMeter = 3.28084;
+    console.log("RMB " + rmbCoords.lon + " " + rmbCoords.lat + " ELEVATION " +
+                Math.round(elevation * feetPerMeter));
+
+    rmbCoords.elv = elevation + 10;
+    drawView(rmbCoords, new ViewAngle(0, 0, .5));
+}
+
+function drawViewVisibleCallback() {
+    return !viewInfo;
+}
+
+function exitViewCallback(key, options) {
+    overheadViewCanvas.style.display = "inline";
+    pointViewCanvas.style.display = "none";
+    viewInfo = null;
+}
+
+function exitViewVisibleCallback() {
+    return !!viewInfo;
+}
+
 $(function(){
+    $.contextMenu("destroy");
     $.contextMenu({
         selector: 'canvas', //'#renderer-canvas', 
-        callback: function(key, options) {
-            var elevation = computeElevation(rmbCoords);
-            var feetPerMeter = 3.28084;
-            console.log("RMB " + rmbCoords.lon + " " + rmbCoords.lat + " ELEVATION " +
-                        Math.round(elevation * feetPerMeter));
-
-            rmbCoords.elv = elevation + 10;
-            drawView(rmbCoords, new ViewAngle(0, 0, .5));
-        },
         items: {
-            "view": {name: "Draw View"}
+	    "view": { name: "Draw View", callback: drawViewCallback, visible: drawViewVisibleCallback },
+	    "exit": { name: "Exit View", callback: exitViewCallback, visible: exitViewVisibleCallback }
         }
     });
 });
