@@ -1,4 +1,4 @@
-/* Copyright 2015 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
 
 "use strict";
 

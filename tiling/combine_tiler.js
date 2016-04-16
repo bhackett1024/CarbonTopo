@@ -1,4 +1,4 @@
-/* Copyright 2015 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
 
 // Given a directory of USGS tiles and a directory of elevation tiles, populate
 // a directory with combined tiles.

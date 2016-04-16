@@ -1,4 +1,4 @@
-/* Copyright 2015 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
 
 // NADCON is the transformation used for converting coordinates between NAD27
 // and NAD83. Much of this is correcting for errors which accumulated during

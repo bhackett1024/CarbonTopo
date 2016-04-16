@@ -1,4 +1,4 @@
-/* Copyright 2015 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
 
 // Given one or more input USGS 7.5 minute quadrangles, populate a destination
 // directory with JPG images for each 2.5 minute x 2.5 minute tile.
