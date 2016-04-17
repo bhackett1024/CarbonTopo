@@ -1,3 +1,4 @@
+/* -*- indent-tabs-mode: nil; js-indent-level: 4; js-indent-level: 4 -*- */
 /* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
 
 "use strict";
@@ -15,55 +16,6 @@ Coordinate.prototype.initialize = function(lat, lon, elevation) {
     this.lat = lat || 0;
     this.lon = lon || 0;
     this.elv = elevation || 0;
-}
-
-function ViewAngle(yaw, pitch, radius)
-{
-    this.initialize(yaw, pitch, radius);
-}
-
-ViewAngle.prototype.copyFrom = function(other) {
-    this.initialize(other.yaw, other.pitch, other.radius);
-}
-
-ViewAngle.prototype.initialize = function(yaw, pitch, radius) {
-    this.yaw = yaw;
-    this.pitch = pitch;
-    this.radius = radius;
-}
-
-ViewAngle.prototype.radiansPerPixel = function(width) {
-    return (2 / width) * this.radius;
-}
-
-function OverheadAngle(centerLat, centerLon, zoom)
-{
-    this.initialize(centerLat, centerLon, zoom);
-}
-
-OverheadAngle.prototype.copyFrom = function(other) {
-    this.initialize(other.centerLat, other.centerLon, other.zoom);
-}
-
-OverheadAngle.prototype.initialize = function(centerLat, centerLon, zoom) {
-    this.centerLat = centerLat;
-    this.centerLon = centerLon;
-    this.zoom = zoom;
-}
-
-function DirtyRegion(x, y, w, h)
-{
-    this.x = x;
-    this.y = y;
-    this.w = w;
-    this.h = h;
-
-    this.nextX = x;
-    this.nextY = y;
-    this.nextDim = 8;
-
-    // Whether any parts of this region were painted prior to the last screen pan.
-    this.displaced = false;
 }
 
 function clamp(n, min, max)
