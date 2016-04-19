@@ -139,8 +139,9 @@ function findTile(coords)
 
         tile.image = new Image();
         tile.image.src = imageUrl;
-
-        setNeedUpdateScene();
+        tile.image.onload = function() {
+            setNeedUpdateScene();
+        }
     }
     try {
         xhr.send();
@@ -181,7 +182,7 @@ function updateOverheadView()
             var topP = Math.floor(overheadView.latitudePixel(tile.topD));
             var bottomP = Math.ceil(overheadView.latitudePixel(tile.topD - tileD));
 
-            if (tile.image)
+            if (tile.image && tile.image.width && tile.image.height)
                 context.drawImage(tile.image, leftP, topP, rightP - leftP, bottomP - topP);
             else if (!tile.invalid)
                 context.fillRect(leftP, topP, rightP - leftP, bottomP - topP);
