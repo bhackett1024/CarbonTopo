@@ -1,9 +1,9 @@
 /* -*- indent-tabs-mode: nil; js-indent-level: 4; js-indent-level: 4 -*- */
-/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2017 Brian Hackett. Released under the MIT license. */
 
 "use strict";
 
-// Routines related to rendering the point of view display.
+// Routines related to raytracing the point of view display.
 
 function ViewAngle(yaw, pitch, radius)
 {
@@ -184,15 +184,27 @@ var raytrace = (function() {
         var nextHeight = (height < 255) ? height + 1 : height;
         var nextWidth = (width < 255) ? width + 1 : width;
 
-        var elevationN = tile.elevationData[box.elevationIndex];
-        var elevationA = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, prevWidth)];
-        var elevationB = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, width)];
-        var elevationC = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, nextWidth)];
-        var elevationD = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(height, prevWidth)];
-        var elevationE = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(height, nextWidth)];
-        var elevationF = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, prevWidth)];
-        var elevationG = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, width)];
-        var elevationH = tile.elevationData[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, nextWidth)];
+        /*
+        var elevationN = tile.elevationTree[box.elevationIndex];
+        var elevationA = tile.getElevationData(nextHeight, prevWidth);
+        var elevationB = tile.getElevationData(nextHeight, width);
+        var elevationC = tile.getElevationData(nextHeight, nextWidth);
+        var elevationD = tile.getElevationData(height, prevWidth);
+        var elevationE = tile.getElevationData(height, nextWidth);
+        var elevationF = tile.getElevationData(prevHeight, prevWidth);
+        var elevationG = tile.getElevationData(prevHeight, width);
+        var elevationH = tile.getElevationData(prevHeight, nextWidth);
+        */
+
+        var elevationN = tile.elevationTree[box.elevationIndex];
+        var elevationA = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, prevWidth)];
+        var elevationB = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, width)];
+        var elevationC = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, nextWidth)];
+        var elevationD = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(height, prevWidth)];
+        var elevationE = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(height, nextWidth)];
+        var elevationF = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, prevWidth)];
+        var elevationG = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, width)];
+        var elevationH = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, nextWidth)];
 
         var elevationUL = Math.min(elevationN, elevationA, elevationB, elevationD);
         var elevationUR = Math.min(elevationN, elevationB, elevationC, elevationE);

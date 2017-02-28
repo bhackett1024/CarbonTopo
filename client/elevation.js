@@ -3,7 +3,7 @@
 
 "use strict";
 
-// Routines related to elevation information.
+// Routines related to tiles and elevation information.
 //
 // The elevation data for a tile is laid out using increasingly fine grained
 // elevation maxima which cover portions of the tile. The first entry in the
@@ -29,6 +29,35 @@
 //
 // This scheme is set up so that going from an entry in one layer |n| to one of
 // its quadrants q (from [0,3]) is merely n*4+1+q.
+
+var tileD = 2.5 / 60;
+
+function Tile(leftD, topD)
+{
+    this.leftD = leftD;
+    this.topD = topD;
+    this.image = null;
+    this.imageData = null;
+
+    // Elevation tree as described above.
+    this.elevationTree = null;
+
+    // Elevation for the 256x256 points in the matrix, in row-major order
+    // starting at the lower left corner.
+    this.elevationData = null;
+
+    this.invalid = false;
+}
+
+Tile.prototype.getElevationData = function(h, w) {
+    return this.elevationData[h * 256 + w];
+}
+
+Tile.prototype.getElevationCoordinate = function(h, w, coords) {
+    coords.lat = this.topD - tileD + (h / 255) * tileD;
+    coords.lon = this.leftD + (w / 255) * tileD;
+    coords.elv = this.getElevationData(h, w);
+}
 
 var numQuadrants = 1 + 2*2 + 4*4 + 8*8 + 16*16 + 32*32 + 64*64 + 128*128;
 
@@ -68,7 +97,7 @@ function elevationIndexFromHeightAndWidth(height, width) {
     return index;
 }
 
-function computeElevationData(tile) {
+function computeElevationData(tile, elevationBuffer) {
     var last = 0;
     var index = 0;
 
@@ -90,28 +119,23 @@ function computeElevationData(tile) {
         return last;
     }
 
-    if (!tile.elevationBuffer)
-        throw "Missing elevation buffer";
+    var bufferContents = new Uint8Array(elevationBuffer);
+    tile.elevationData = new Uint16Array(256*256);
+    tile.elevationTree = new Uint16Array(numQuadrants + 256*256);
 
-    var bufferContents = new Uint8Array(tile.elevationBuffer);
-    tile.elevationData = new Uint16Array(numQuadrants + 256*256);
-
-    var pointData = new Uint16Array(256 * 256);
-
-    var p = 0;
-    for (var height = 0; height < 256; height++) {
-        for (var width = 0; width < 256; width++, p++) {
-            var i = elevationIndexFromHeightAndWidth(height, width);
-            tile.elevationData[numQuadrants + i] = pointData[p] = decode();
+    for (var h = 0; h < 256; h++) {
+        for (var w = 0; w < 256; w++) {
+            var i = elevationIndexFromHeightAndWidth(h, w);
+            tile.elevationTree[numQuadrants + i] = tile.elevationData[h*256+w] = decode();
         }
     }
 
     for (var i = numQuadrants - 1; i >= 0; i--) {
-        tile.elevationData[i] =
-            Math.max(tile.elevationData[i * 4 + 1],
-                     tile.elevationData[i * 4 + 2],
-                     tile.elevationData[i * 4 + 3],
-                     tile.elevationData[i * 4 + 4]);
+        tile.elevationTree[i] =
+            Math.max(tile.elevationTree[i * 4 + 1],
+                     tile.elevationTree[i * 4 + 2],
+                     tile.elevationTree[i * 4 + 3],
+                     tile.elevationTree[i * 4 + 4]);
     }
 }
 
@@ -125,53 +149,4 @@ function computeElevation(coords, tile)
 
     var index = elevationIndexFromHeightAndWidth(height, width);
     return tile.elevationData[numQuadrants + index];
-}
-
-var renderedTileHeight = 1000;
-var renderCanvas = null;
-var renderContext = null;
-
-function renderTileData(tile)
-{
-    var pointData = computeElevationData(tile);
-
-    var distances = latlonDistances(tile.topD);
-    var height = renderedTileHeight;
-    var width = (height * (distances.lon / distances.lat)) | 0;
-
-    if (!renderCanvas) {
-        renderCanvas = document.createElement('canvas');
-        renderContext = renderCanvas.getContext('2d', { alpha: false });
-    }
-
-    renderCanvas.height = height;
-    renderCanvas.width = width;
-
-    var imageData = renderContext.createImageData(width, height);
-    var data = imageData.data;
-
-    var floor = 5000;
-    var ceiling = 13000;
-
-    var what = 0;
-
-    var p = 0;
-    for (var h = 0; h < height; h++) {
-        for (var w = 0; w < width; w++, p += 4) {
-            var lat = tile.topD - tileD + ((height - h) / height * tileD);
-            var lon = tile.leftD + (w / width * tileD);
-            var coord = new Coordinate(lat, lon);
-
-            var elevation = computeElevation(coord, tile) * 3.28084;
-            var fraction = (clamp(elevation, floor, ceiling) - floor) / (ceiling - floor);
-
-            data[p] = fraction * 256;
-            data[p + 1] = 0;
-            data[p + 2] = 0;
-            data[p + 3] = 255;
-        }
-    }
-
-    renderContext.putImageData(imageData, 0, 0);
-    return renderCanvas.toDataURL();
 }

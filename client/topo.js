@@ -12,7 +12,6 @@ var pointViewCanvas = document.getElementById("pointViewCanvas");
 
 var minZoom = 1;
 var maxZoom = 5;
-var tileD = 2.5 / 60;
 
 var tileDirectory = "tiles";
 
@@ -106,15 +105,7 @@ function findTile(coords)
     if (file in allTiles)
         return allTiles[file];
 
-    var tile = {
-        leftD: leftD,
-        topD: topD,
-        image: null,
-        imageData: null,
-        elevationBuffer: null,
-        elevationData: null,
-        invalid: false
-    };
+    var tile = new Tile(leftD, topD);
 
     allTiles[file] = tile;
 
@@ -130,7 +121,8 @@ function findTile(coords)
         var zip = new JSZip();
         zip.load(this.response);
 
-        tile.elevationBuffer = zip.file(".elv").asArrayBuffer();
+        var elevationBuffer = zip.file(".elv").asArrayBuffer();
+        computeElevationData(tile, elevationBuffer);
         var imageUrl = renderTileData(tile);
 
         tile.image = new Image();
@@ -246,7 +238,6 @@ window.addEventListener('resize', resizeEvent);
 function clickEvent(ev) {
     var coords = screenCoordinatesToLatlong(overheadView, ev.clientX, ev.clientY);
     var elevation = computeElevation(coords);
-    var feetPerMeter = 3.28084;
 
     var color = {
         r:0,
@@ -357,7 +348,6 @@ window.addEventListener('mousemove', mousemoveEvent);
 
 function drawViewCallback(key, options) {
     var elevation = computeElevation(rmbCoords);
-    var feetPerMeter = 3.28084;
     console.log("RMB " + rmbCoords.lon + " " + rmbCoords.lat + " ELEVATION " +
                 Math.round(elevation * feetPerMeter));
 
