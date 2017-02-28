@@ -67,12 +67,7 @@ var renderTileData = (function() {
         renderContext.lineTo(tx, ty);
     }
 
-    var reentrant = false;
-
     return function(tile) {
-        assert(!reentrant);
-        reentrant = true;
-
         currentTile = tile;
         if (!tile.elevationData)
             computeElevationData(tile);
@@ -124,7 +119,29 @@ var renderTileData = (function() {
         }
 
         renderContext.stroke();
-        reentrant = false;
+
+        for (var h = 0; h < 255; h++) {
+            for (var w = 0; w < 255; w++) {
+                tile.getElevationCoordinate(h, w, coordLL);
+                tile.getElevationCoordinate(h, w + 1, coordLR);
+                tile.getElevationCoordinate(h + 1, w, coordUL);
+
+                var verticalDiff = coordLL.elv - coordUL.elv;
+                var horizontalDiff = coordLR.elv - coordLL.elv;
+
+                if (!lessThan(0, verticalDiff))
+                    verticalDiff = 0;
+                if (!lessThan(0, horizontalDiff))
+                    horizontalDiff = 0;
+                if (verticalDiff || horizontalDiff) {
+                    var alpha = clamp((verticalDiff + horizontalDiff) / 20, 0, .4);
+                    var sx = lonPixel(coordUL.lon);
+                    var sy = latPixel(coordUL.lat);
+                    renderContext.fillStyle = "rgba(0,0,0," + alpha + ")";
+                    renderContext.fillRect(sx, sy, lonPixel(coordLR.lon) - sx, latPixel(coordLL.lat) - sy);
+                }
+            }
+        }
 
         return renderCanvas.toDataURL();
     }
