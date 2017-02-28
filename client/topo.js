@@ -1,5 +1,5 @@
 /* -*- indent-tabs-mode: nil; js-indent-level: 4; js-indent-level: 4 -*- */
-/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2017 Brian Hackett. Released under the MIT license. */
 
 "use strict";
 
@@ -46,9 +46,8 @@ OverheadAngle.prototype.computeDegreesPerPixel = function() {
     // latitude and longitude scales based on the current center of the map.
     //
     // With a zoom factor of 1, the display should be roughly 1:1 with the
-    // underlying tile images. For now, bake in the behavior of tiler.js that
-    // 2.5 minute tiles are all 2000 pixels high.
-    var lat = this.zoom * tileD / 2000;
+    // rendered tile images.
+    var lat = this.zoom * tileD / renderedTileHeight;
     var distances = latlonDistances(this.centerLat);
     var lon = lat / (distances.lon / distances.lat);
     this.degreesPerPixel = new Coordinate(lat, lon);
@@ -66,7 +65,7 @@ OverheadAngle.prototype.latitudePixel = function(lat) {
 // View State
 ///////////////////////////////////////////////////////////////////////////////
 
-var overheadView = new OverheadAngle(46.91, -121.75, 1);
+var overheadView = new OverheadAngle(40.57, -111.63, 1);
 
 // All tiles which are currently loaded.
 var allTiles = {};
@@ -132,10 +131,7 @@ function findTile(coords)
         zip.load(this.response);
 
         tile.elevationBuffer = zip.file(".elv").asArrayBuffer();
-
-        var jpegData = zip.file(".jpg").asUint8Array();
-        var blob = new Blob( [ jpegData ], { type: "image/jpeg" } );
-        var imageUrl = window.URL.createObjectURL(blob);
+        var imageUrl = renderTileData(tile);
 
         tile.image = new Image();
         tile.image.src = imageUrl;

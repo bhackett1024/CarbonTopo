@@ -1,4 +1,4 @@
-/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2017 Brian Hackett. Released under the MIT license. */
 
 // Given one or more input 1 degree AIG binary grids, populate a destination
 // directory with reformatted files for each 2.5 minute x 2.5 minute tile.
@@ -19,19 +19,26 @@ var tmpTxt = tmpFile + ".txt";
 // The tiles we're generating are 2.5 minutes on each side.
 var tileD = 2.5 / 60;
 
-for (var i = 1; i < scriptArgs.length; i++)
-    generateElevationTiles(scriptArgs[i]);
+for (var i = 1; i < scriptArgs.length; i++) {
+    try {
+	generateElevationTiles(scriptArgs[i]);
+    } catch (e) {
+	os.system("rm -rf tmp");
+	os.system("rm .elv");
+	throw e;
+    }
+}
 
 function generateElevationTiles(sourceZip) {
     print("Processing " + sourceZip);
 
-    os.system(`unzip ${sourceZip} 2> /dev/null > /dev/null`);
+    os.system(`unzip ${sourceZip} -d tmp 2> /dev/null > /dev/null`);
 
-    os.system(`ls */metadata.xml > ${tmpTxt}`);
-    var sourceGrid = /(.*?)\//.exec(snarf(tmpTxt))[1];
+    os.system(`ls tmp/*/metadata.xml > ${tmpTxt}`);
+    var sourceGrid = /tmp\/(.*?)\//.exec(snarf(tmpTxt))[1];
 
     // Make sure the source uses NAD 83.
-    os.system(`gdalinfo "${sourceGrid}" > ${tmpTxt}`);
+    os.system(`gdalinfo "tmp/${sourceGrid}" > ${tmpTxt}`);
     var sourceInfo = os.file.readFile(tmpTxt);
     assertEq(/DATUM\[\"North_American_Datum_1983\"/.test(sourceInfo), true);
 
@@ -51,16 +58,16 @@ function generateElevationTiles(sourceZip) {
             generateTile(mapLeftD + i * tileD, mapTopD - j * tileD);
     }
 
-    os.system(`rm -rf ${sourceGrid} info readme.pdf *_13_meta.* ned_13arcsec_g.* *.url *_13_thumb.jpg`);
+    os.system("rm -rf tmp");
 
     function generateTile(leftD, topD) {
         // Generate a tile with the specified lon and lat at the upper left corner.
-        var dstFile = tileFile(destinationDirectory, leftD, topD, ".elv");
+        var dstFile = tileFile(destinationDirectory, leftD, topD, ".zip");
 
         var rightD = leftD + tileD;
         var bottomD = topD - tileD;
 
-        os.system(`gdal_translate -co "DECIMAL_PRECISION=0" -of AAIGrid "${sourceGrid}" -projwin ${leftD} ${topD} ${rightD} ${bottomD} ${tmpTxt} 2> /dev/null > /dev/null`);
+        os.system(`gdal_translate -co "DECIMAL_PRECISION=0" -of AAIGrid "tmp/${sourceGrid}" -projwin ${leftD} ${topD} ${rightD} ${bottomD} ${tmpTxt} 2> /dev/null > /dev/null`);
         var text = os.file.readFile(tmpTxt);
 
         var lineArray = text.split('\n');
@@ -126,6 +133,8 @@ function generateElevationTiles(sourceZip) {
             }
         }
 
-        os.file.writeFile(dstFile, new Uint8Array(outputData));
+        os.file.writeTypedArrayToFile(".elv", new Uint8Array(outputData));
+	os.system(`zip ${dstFile} .elv`);
+	os.system("rm .elv");
     }
 }

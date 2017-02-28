@@ -247,9 +247,6 @@ var raytrace = (function() {
         source.copyFrom(coords);
 
         var tile = findTile(source);
-        if (!tile.elevationData)
-            computeElevationData(tile);
-
         var searchStack = pushSearchStack(tile.leftD, tile.leftD + tileD,
                                           tile.topD, tile.topD - tileD, 0, null);
 
@@ -359,8 +356,6 @@ var raytrace = (function() {
                 tile = findTile(target);
                 if (tile.invalid || !tile.image)
                     return false;
-                if (!tile.elevationData)
-                    computeElevationData(tile);
 
                 searchStack = pushSearchStack(tile.leftD, tile.leftD + tileD,
                                               tile.topD, tile.topD - tileD, 0, null);

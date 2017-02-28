@@ -1,5 +1,5 @@
 /* -*- indent-tabs-mode: nil; js-indent-level: 4; js-indent-level: 4 -*- */
-/* Copyright 2015-2016 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2017 Brian Hackett. Released under the MIT license. */
 
 "use strict";
 
@@ -96,10 +96,13 @@ function computeElevationData(tile) {
     var bufferContents = new Uint8Array(tile.elevationBuffer);
     tile.elevationData = new Uint16Array(numQuadrants + 256*256);
 
+    var pointData = new Uint16Array(256 * 256);
+
+    var p = 0;
     for (var height = 0; height < 256; height++) {
-        for (var width = 0; width < 256; width++) {
+        for (var width = 0; width < 256; width++, p++) {
             var i = elevationIndexFromHeightAndWidth(height, width);
-            tile.elevationData[numQuadrants + i] = decode();
+            tile.elevationData[numQuadrants + i] = pointData[p] = decode();
         }
     }
 
@@ -114,15 +117,61 @@ function computeElevationData(tile) {
 
 function computeElevation(coords, tile)
 {
-    if (!tile) {
+    if (!tile)
         tile = findTile(coords);
-        if (!tile.elevationData)
-            computeElevationData(tile);
-    }
 
     var height = Math.round((coords.lat - (tile.topD - tileD)) / tileD * 255);
     var width = Math.round((coords.lon - tile.leftD) / tileD * 255);
 
     var index = elevationIndexFromHeightAndWidth(height, width);
     return tile.elevationData[numQuadrants + index];
+}
+
+var renderedTileHeight = 1000;
+var renderCanvas = null;
+var renderContext = null;
+
+function renderTileData(tile)
+{
+    var pointData = computeElevationData(tile);
+
+    var distances = latlonDistances(tile.topD);
+    var height = renderedTileHeight;
+    var width = (height * (distances.lon / distances.lat)) | 0;
+
+    if (!renderCanvas) {
+        renderCanvas = document.createElement('canvas');
+        renderContext = renderCanvas.getContext('2d', { alpha: false });
+    }
+
+    renderCanvas.height = height;
+    renderCanvas.width = width;
+
+    var imageData = renderContext.createImageData(width, height);
+    var data = imageData.data;
+
+    var floor = 5000;
+    var ceiling = 13000;
+
+    var what = 0;
+
+    var p = 0;
+    for (var h = 0; h < height; h++) {
+        for (var w = 0; w < width; w++, p += 4) {
+            var lat = tile.topD - tileD + ((height - h) / height * tileD);
+            var lon = tile.leftD + (w / width * tileD);
+            var coord = new Coordinate(lat, lon);
+
+            var elevation = computeElevation(coord, tile) * 3.28084;
+            var fraction = (clamp(elevation, floor, ceiling) - floor) / (ceiling - floor);
+
+            data[p] = fraction * 256;
+            data[p + 1] = 0;
+            data[p + 2] = 0;
+            data[p + 3] = 255;
+        }
+    }
+
+    renderContext.putImageData(imageData, 0, 0);
+    return renderCanvas.toDataURL();
 }
