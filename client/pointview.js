@@ -184,7 +184,6 @@ var raytrace = (function() {
         var nextHeight = (height < 255) ? height + 1 : height;
         var nextWidth = (width < 255) ? width + 1 : width;
 
-        /*
         var elevationN = tile.elevationTree[box.elevationIndex];
         var elevationA = tile.getElevationData(nextHeight, prevWidth);
         var elevationB = tile.getElevationData(nextHeight, width);
@@ -194,17 +193,6 @@ var raytrace = (function() {
         var elevationF = tile.getElevationData(prevHeight, prevWidth);
         var elevationG = tile.getElevationData(prevHeight, width);
         var elevationH = tile.getElevationData(prevHeight, nextWidth);
-        */
-
-        var elevationN = tile.elevationTree[box.elevationIndex];
-        var elevationA = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, prevWidth)];
-        var elevationB = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, width)];
-        var elevationC = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(nextHeight, nextWidth)];
-        var elevationD = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(height, prevWidth)];
-        var elevationE = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(height, nextWidth)];
-        var elevationF = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, prevWidth)];
-        var elevationG = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, width)];
-        var elevationH = tile.elevationTree[numQuadrants + elevationIndexFromHeightAndWidth(prevHeight, nextWidth)];
 
         var elevationUL = Math.min(elevationN, elevationA, elevationB, elevationD);
         var elevationUR = Math.min(elevationN, elevationB, elevationC, elevationE);
@@ -271,7 +259,7 @@ var raytrace = (function() {
 
             var dim = searchStack.topD - searchStack.bottomD;
 
-            var boxHeight = tile.elevationData[searchStack.elevationIndex];
+            var boxHeight = tile.elevationTree[searchStack.elevationIndex];
             if (boxHeight >= minHeight) {
                 // The ray might intersect the current bounding box.
 

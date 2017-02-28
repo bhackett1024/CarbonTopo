@@ -144,9 +144,7 @@ function computeElevation(coords, tile)
     if (!tile)
         tile = findTile(coords);
 
-    var height = Math.round((coords.lat - (tile.topD - tileD)) / tileD * 255);
-    var width = Math.round((coords.lon - tile.leftD) / tileD * 255);
-
-    var index = elevationIndexFromHeightAndWidth(height, width);
-    return tile.elevationData[numQuadrants + index];
+    var h = Math.round((coords.lat - (tile.topD - tileD)) / tileD * 255);
+    var w = Math.round((coords.lon - tile.leftD) / tileD * 255);
+    return tile.getElevationData(h, w);
 }
