@@ -145,10 +145,10 @@ var renderTileData = (function() {
         for (var h = 0; h < 255; h++) {
             for (var w = 0; w < 255; w++) {
                 var alpha = Math.max(alphas[h*255 + w],
-                                     alphas[h*255 + clamp(w-1,0,255)],
-                                     alphas[h*255 + clamp(w+1,0,255)],
-                                     alphas[clamp(h-1,0,255)*255 + w],
-                                     alphas[clamp(h+1,0,255)*255 + w]);
+                                     alphas[h*255 + clamp(w-1,0,254)],
+                                     alphas[h*255 + clamp(w+1,0,254)],
+                                     alphas[clamp(h-1,0,254)*255 + w],
+                                     alphas[clamp(h+1,0,254)*255 + w]);
                 if (alpha) {
                     tile.getElevationCoordinate(h, w, coordLL);
                     tile.getElevationCoordinate(h, w + 1, coordLR);
