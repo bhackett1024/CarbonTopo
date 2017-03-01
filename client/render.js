@@ -11,6 +11,12 @@ var renderedTileHeight = 1000;
 var contourLineIntervalFeet = 100;
 var majorContourLineIntervalFeet = 500;
 
+var elevationColorFloor = 7000;
+var elevationColorCeiling = 13000;
+
+var colorFloor = [180,255,180];
+var colorCeiling = [255,0,0];
+
 var renderTileData = (function() {
     var renderCanvas = document.createElement('canvas');
     var renderContext = renderCanvas.getContext('2d', { alpha: false });
@@ -58,6 +64,20 @@ var renderTileData = (function() {
         return clamp(Math.round((currentTile.topD - lat) / tileD * renderedTileHeight), 0, renderedTileHeight);
     }
 
+    function interpolateColor(first, second, fraction)
+    {
+        return clamp((first * fraction + second * (1 - fraction)) | 0, 0, 255);
+    }
+
+    function elevationColor(elv)
+    {
+        var fraction = clamp(((elv * feetPerMeter) - elevationColorFloor) / (elevationColorCeiling - elevationColorFloor), 0, 1);
+        var r = interpolateColor(colorCeiling[0], colorFloor[0], fraction);
+        var g = interpolateColor(colorCeiling[1], colorFloor[1], fraction);
+        var b = interpolateColor(colorCeiling[2], colorFloor[2], fraction);
+        return "rgb(" + r + "," + g + "," + b + ")";
+    }
+
     function drawContour(firstCoord, secondCoord)
     {
         var sx = lonPixel(firstCoord.lon);
@@ -85,8 +105,17 @@ var renderTileData = (function() {
         renderCanvas.height = renderedTileHeight;
         renderCanvas.width = renderedTileWidth;
 
-        renderContext.fillStyle = "rgb(180,255,180)";
-        renderContext.fillRect(0, 0, renderedTileWidth, renderedTileHeight);
+        for (var h = 0; h < 255; h++) {
+            for (var w = 0; w < 255; w++) {
+                tile.getElevationCoordinate(h, w, coordLL);
+                tile.getElevationCoordinate(h, w + 1, coordLR);
+                tile.getElevationCoordinate(h + 1, w, coordUL);
+                var sx = lonPixel(coordUL.lon);
+                var sy = latPixel(coordUL.lat);
+                renderContext.fillStyle = elevationColor(coordLL.elv);
+                renderContext.fillRect(sx, sy, lonPixel(coordLR.lon) - sx, latPixel(coordLL.lat) - sy);
+            }
+        }
 
         for (var h = 0; h < 255; h++) {
             for (var w = 0; w < 255; w++) {
@@ -131,7 +160,7 @@ var renderTileData = (function() {
                 tile.getElevationCoordinate(h, w + 1, coordLR);
                 tile.getElevationCoordinate(h + 1, w, coordUL);
 
-                var verticalDiff = coordLL.elv - coordUL.elv;
+                var verticalDiff = coordUL.elv - coordLL.elv;
                 var horizontalDiff = coordLR.elv - coordLL.elv;
 
                 if (!lessThan(0, verticalDiff))
