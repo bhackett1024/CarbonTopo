@@ -9,6 +9,7 @@ var feetPerMeter = 3.28084;
 
 var renderedTileHeight = 1000;
 var contourLineIntervalFeet = 100;
+var majorContourLineIntervalFeet = 500;
 
 var renderTileData = (function() {
     var renderCanvas = document.createElement('canvas');
@@ -42,6 +43,7 @@ var renderTileData = (function() {
             var fraction = (contour - firstElv) / (secondElv - firstElv);
             var coord = coordFreelist.length ? coordFreelist.pop() : new Coordinate();
             coord.interpolate(firstCoord, secondCoord, 1 - fraction);
+            coord.major = (contour | 0) % majorContourLineIntervalFeet == 0;
             contourPoints.push(coord);
         }
     }
@@ -63,8 +65,13 @@ var renderTileData = (function() {
         var tx = lonPixel(secondCoord.lon);
         var ty = latPixel(secondCoord.lat);
 
+        assert(firstCoord.major == secondCoord.major);
+        renderContext.lineWidth = firstCoord.major ? 3 : 1;
+
+        renderContext.beginPath();
         renderContext.moveTo(sx, sy);
         renderContext.lineTo(tx, ty);
+        renderContext.stroke();
     }
 
     return function(tile) {
@@ -80,8 +87,6 @@ var renderTileData = (function() {
 
         renderContext.fillStyle = "rgb(180,255,180)";
         renderContext.fillRect(0, 0, renderedTileWidth, renderedTileHeight);
-
-        renderContext.beginPath();
 
         for (var h = 0; h < 255; h++) {
             for (var w = 0; w < 255; w++) {
@@ -117,8 +122,6 @@ var renderTileData = (function() {
                 contourPoints.length = 0;
             }
         }
-
-        renderContext.stroke();
 
         var alphas = new Float32Array(255 * 255);
 
