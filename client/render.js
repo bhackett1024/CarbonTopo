@@ -48,12 +48,12 @@ var renderTileData = (function() {
 
     function lonPixel(lon)
     {
-        return clamp(((lon - currentTile.leftD) / tileD * renderedTileWidth) | 0, 0, renderedTileWidth - 1);
+        return clamp(Math.round((lon - currentTile.leftD) / tileD * renderedTileWidth), 0, renderedTileWidth);
     }
 
     function latPixel(lat)
     {
-        return clamp(((currentTile.topD - lat) / tileD * renderedTileHeight) | 0, 0, renderedTileHeight - 1);
+        return clamp(Math.round((currentTile.topD - lat) / tileD * renderedTileHeight), 0, renderedTileHeight);
     }
 
     function drawContour(firstCoord, secondCoord)
@@ -120,6 +120,8 @@ var renderTileData = (function() {
 
         renderContext.stroke();
 
+        var alphas = new Float32Array(255 * 255);
+
         for (var h = 0; h < 255; h++) {
             for (var w = 0; w < 255; w++) {
                 tile.getElevationCoordinate(h, w, coordLL);
@@ -134,7 +136,23 @@ var renderTileData = (function() {
                 if (!lessThan(0, horizontalDiff))
                     horizontalDiff = 0;
                 if (verticalDiff || horizontalDiff) {
-                    var alpha = clamp((verticalDiff + horizontalDiff) / 20, 0, .4);
+                    var alpha = clamp(verticalDiff / 40 + horizontalDiff / 30, 0, .4);
+                    alphas[h*255 + w] = alpha;
+                }
+            }
+        }
+
+        for (var h = 0; h < 255; h++) {
+            for (var w = 0; w < 255; w++) {
+                var alpha = Math.max(alphas[h*255 + w],
+                                     alphas[h*255 + clamp(w-1,0,255)],
+                                     alphas[h*255 + clamp(w+1,0,255)],
+                                     alphas[clamp(h-1,0,255)*255 + w],
+                                     alphas[clamp(h+1,0,255)*255 + w]);
+                if (alpha) {
+                    tile.getElevationCoordinate(h, w, coordLL);
+                    tile.getElevationCoordinate(h, w + 1, coordLR);
+                    tile.getElevationCoordinate(h + 1, w, coordUL);
                     var sx = lonPixel(coordUL.lon);
                     var sy = latPixel(coordUL.lat);
                     renderContext.fillStyle = "rgba(0,0,0," + alpha + ")";
