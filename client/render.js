@@ -239,10 +239,22 @@ var renderTileData = (function() {
         worklist[0].callback(renderCanvas.toDataURL());
         worklist = worklist.slice(1);
 
-        if (worklist.length)
+        if (worklist.length) {
+            // Render tiles in sequence according to how close they are to the
+            // center of the overhead view.
+            var closestIndex = 0;
+            for (var i = 1; i < worklist.length; i++) {
+                if (overheadViewDistanceFrom(worklist[i].tile) < overheadViewDistanceFrom(worklist[closestIndex].tile))
+                    closestIndex = i;
+            }
+            var tmp = worklist[0];
+            worklist[0] = worklist[closestIndex];
+            worklist[closestIndex] = tmp;
+
             setTimeout(renderTileWorklist);
-        else
+        } else {
             hasWorklistTimer = false;
+        }
     }
 
     return function(tile, callback) {

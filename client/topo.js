@@ -197,6 +197,15 @@ function updateOverheadView()
     }
 }
 
+function overheadViewDistanceFrom(tile)
+{
+    // Return the distance from the center of the overhead view to tile, in meters.
+    var distances = latlonDistances(overheadView.centerLat);
+    var latDistance = (tile.topD - tileD / 2 - overheadView.centerLat) * distances.lat;
+    var lonDistance = (tile.leftD + tileD / 2 - overheadView.centerLon) * distances.lon;
+    return Math.sqrt((latDistance * latDistance) + (lonDistance * lonDistance));
+}
+
 function drawPathSegment(context, src, dst)
 {
     context.beginPath();
