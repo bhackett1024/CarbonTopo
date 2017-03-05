@@ -7,30 +7,50 @@
 
 var feetPerMeter = 3.28084;
 
+// Height of tile images, in pixels.
 var renderedTileHeight = 1000;
+
+// Variables for controlling tile rendering.
 var contourLineIntervalFeet = 100;
 var majorContourLineIntervalFeet = 500;
-
 var elevationColorFloor = 7000;
 var elevationColorCeiling = 11500;
-
 var colorFloor = [180,255,180];
 var colorCeiling = [255,0,0];
 
 var renderTileData = (function() {
+    // All tiles that are waiting to render. The active/next tile to render is
+    // at position zero. If non-empty, either we are in renderTileWorklist or
+    // there is a timer for a pending call to renderTileWorklist.
     var worklist = [];
 
+    // Canvas/context used for rendering tiles.
     var renderCanvas = document.createElement('canvas');
     var renderContext = renderCanvas.getContext('2d', { alpha: false });
+
+    // Width of the current tile.
     var renderedTileWidth = 0;
 
-    var contourPoints = [];
+    // Scratch data used while rendering.
     var coordLL = new Coordinate();
     var coordLR = new Coordinate();
     var coordUL = new Coordinate();
     var coordUR = new Coordinate();
-
+    var contourPoints = [];
     var coordFreelist = [];
+    var renderAlphas = new Float32Array(255 * 255);
+
+    // Start time of the current rendering slice.
+    var renderStartTime = null;
+
+    // Position in the various main rendering loops, for resuming work if
+    // rendering stops in the middle of a slice.
+    var backgroundH, contourH, fillAlphaH, drawAlphaH;
+
+    function resetRenderingState() {
+        backgroundH = contourH = fillAlphaH = drawAlphaH = 0;
+    }
+    resetRenderingState();
 
     function findContourPoints(firstCoord, secondCoord)
     {
@@ -94,19 +114,6 @@ var renderTileData = (function() {
         renderContext.lineTo(tx, ty);
         renderContext.stroke();
     }
-
-    var hasWorklistTimer = false;
-
-    var renderStartTime = null;
-
-    var renderAlphas = new Float32Array(255 * 255);
-
-    var backgroundH, contourH, fillAlphaH, drawAlphaH;
-
-    function resetRenderingState() {
-        backgroundH = contourH = fillAlphaH = drawAlphaH = 0;
-    }
-    resetRenderingState();
 
     function stopRendering() {
         // Lazily fill in the start time here. This is a convoluted way of
@@ -252,16 +259,12 @@ var renderTileData = (function() {
             worklist[closestIndex] = tmp;
 
             setTimeout(renderTileWorklist);
-        } else {
-            hasWorklistTimer = false;
         }
     }
 
     return function(tile, callback) {
         worklist.push({tile:tile, callback:callback});
-        if (!hasWorklistTimer) {
-            hasWorklistTimer = true;
+        if (worklist.length == 1)
             setTimeout(renderTileWorklist);
-        }
     }
 })();
