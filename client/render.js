@@ -18,10 +18,11 @@ var colorFloor = [180,255,180];
 var colorCeiling = [255,0,0];
 
 var renderTileData = (function() {
+    var worklist = [];
+
     var renderCanvas = document.createElement('canvas');
     var renderContext = renderCanvas.getContext('2d', { alpha: false });
     var renderedTileWidth = 0;
-    var currentTile = null;
 
     var contourPoints = [];
     var coordLL = new Coordinate();
@@ -56,12 +57,12 @@ var renderTileData = (function() {
 
     function lonPixel(lon)
     {
-        return clamp(Math.round((lon - currentTile.leftD) / tileD * renderedTileWidth), 0, renderedTileWidth);
+        return clamp(Math.round((lon - worklist[0].tile.leftD) / tileD * renderedTileWidth), 0, renderedTileWidth);
     }
 
     function latPixel(lat)
     {
-        return clamp(Math.round((currentTile.topD - lat) / tileD * renderedTileHeight), 0, renderedTileHeight);
+        return clamp(Math.round((worklist[0].tile.topD - lat) / tileD * renderedTileHeight), 0, renderedTileHeight);
     }
 
     function interpolateColor(first, second, fraction)
@@ -94,22 +95,57 @@ var renderTileData = (function() {
         renderContext.stroke();
     }
 
-    return function(tile) {
-        currentTile = tile;
-        if (!tile.elevationData)
-            computeElevationData(tile);
+    var hasWorklistTimer = false;
 
-        var distances = latlonDistances(tile.topD);
-        renderedTileWidth = (renderedTileHeight * (distances.lon / distances.lat)) | 0;
+    var renderStartTime = null;
 
-        renderCanvas.height = renderedTileHeight;
-        renderCanvas.width = renderedTileWidth;
+    var renderAlphas = new Float32Array(255 * 255);
 
-        for (var h = 0; h < 255; h++) {
-            for (var w = 0; w < 255; w++) {
-                tile.getElevationCoordinate(h, w, coordLL);
-                tile.getElevationCoordinate(h, w + 1, coordLR);
-                tile.getElevationCoordinate(h + 1, w, coordUL);
+    var backgroundH, contourH, fillAlphaH, drawAlphaH;
+
+    function resetRenderingState() {
+        backgroundH = contourH = fillAlphaH = drawAlphaH = 0;
+    }
+    resetRenderingState();
+
+    function stopRendering() {
+        // Lazily fill in the start time here. This is a convoluted way of
+        // ensuring we always render at least one row in renderTileWorklist.
+        if (!renderStartTime) {
+            renderStartTime = new Date;
+            return false;
+        }
+        var timeDiff = new Date - renderStartTime;
+        if (timeDiff >= renderingBudget) {
+            setTimeout(renderTileWorklist);
+            return true;
+        }
+        return false;
+    }
+
+    function renderTileWorklist() {
+        renderStartTime = null;
+
+        var tile = worklist[0].tile;
+        if (backgroundH == 0) {
+            // We are just starting to render this tile.
+            if (!tile.elevationData)
+                computeElevationData(tile);
+
+            var distances = latlonDistances(tile.topD);
+            renderedTileWidth = (renderedTileHeight * (distances.lon / distances.lat)) | 0;
+
+            renderCanvas.height = renderedTileHeight;
+            renderCanvas.width = renderedTileWidth;
+        }
+
+        for (; backgroundH < 255; backgroundH++) {
+            if (stopRendering())
+                return;
+            for (var backgroundW = 0; backgroundW < 255; backgroundW++) {
+                tile.getElevationCoordinate(backgroundH, backgroundW, coordLL);
+                tile.getElevationCoordinate(backgroundH, backgroundW + 1, coordLR);
+                tile.getElevationCoordinate(backgroundH + 1, backgroundW, coordUL);
                 var sx = lonPixel(coordUL.lon);
                 var sy = latPixel(coordUL.lat);
                 renderContext.fillStyle = elevationColor(coordLL.elv);
@@ -117,12 +153,14 @@ var renderTileData = (function() {
             }
         }
 
-        for (var h = 0; h < 255; h++) {
-            for (var w = 0; w < 255; w++) {
-                tile.getElevationCoordinate(h, w, coordLL);
-                tile.getElevationCoordinate(h, w + 1, coordLR);
-                tile.getElevationCoordinate(h + 1, w, coordUL);
-                tile.getElevationCoordinate(h + 1, w + 1, coordUR);
+        for (; contourH < 255; contourH++) {
+            if (stopRendering())
+                return;
+            for (var contourW = 0; contourW < 255; contourW++) {
+                tile.getElevationCoordinate(contourH, contourW, coordLL);
+                tile.getElevationCoordinate(contourH, contourW + 1, coordLR);
+                tile.getElevationCoordinate(contourH + 1, contourW, coordUL);
+                tile.getElevationCoordinate(contourH + 1, contourW + 1, coordUR);
 
                 findContourPoints(coordLL, coordUL);
                 findContourPoints(coordLL, coordLR);
@@ -152,13 +190,13 @@ var renderTileData = (function() {
             }
         }
 
-        var alphas = new Float32Array(255 * 255);
-
-        for (var h = 0; h < 255; h++) {
-            for (var w = 0; w < 255; w++) {
-                tile.getElevationCoordinate(h, w, coordLL);
-                tile.getElevationCoordinate(h, w + 1, coordLR);
-                tile.getElevationCoordinate(h + 1, w, coordUL);
+        for (; fillAlphaH < 255; fillAlphaH++) {
+            if (stopRendering())
+                return;
+            for (var fillAlphaW = 0; fillAlphaW < 255; fillAlphaW++) {
+                tile.getElevationCoordinate(fillAlphaH, fillAlphaW, coordLL);
+                tile.getElevationCoordinate(fillAlphaH, fillAlphaW + 1, coordLR);
+                tile.getElevationCoordinate(fillAlphaH + 1, fillAlphaW, coordUL);
 
                 var verticalDiff = coordUL.elv - coordLL.elv;
                 var horizontalDiff = coordLR.elv - coordLL.elv;
@@ -167,24 +205,27 @@ var renderTileData = (function() {
                     verticalDiff = 0;
                 if (!lessThan(0, horizontalDiff))
                     horizontalDiff = 0;
-                if (verticalDiff || horizontalDiff) {
-                    var alpha = clamp(verticalDiff / 40 + horizontalDiff / 30, 0, .4);
-                    alphas[h*255 + w] = alpha;
-                }
+
+                var alpha = (verticalDiff || horizontalDiff)
+                            ? clamp(verticalDiff / 40 + horizontalDiff / 30, 0, .4)
+                            : 0;
+                renderAlphas[fillAlphaH*255 + fillAlphaW] = alpha;
             }
         }
 
-        for (var h = 0; h < 255; h++) {
-            for (var w = 0; w < 255; w++) {
-                var alpha = Math.max(alphas[h*255 + w],
-                                     alphas[h*255 + clamp(w-1,0,254)],
-                                     alphas[h*255 + clamp(w+1,0,254)],
-                                     alphas[clamp(h-1,0,254)*255 + w],
-                                     alphas[clamp(h+1,0,254)*255 + w]);
+        for (; drawAlphaH < 255; drawAlphaH++) {
+            if (stopRendering())
+                return;
+            for (var drawAlphaW = 0; drawAlphaW < 255; drawAlphaW++) {
+                var alpha = Math.max(renderAlphas[drawAlphaH*255 + drawAlphaW],
+                                     renderAlphas[drawAlphaH*255 + clamp(drawAlphaW-1,0,254)],
+                                     renderAlphas[drawAlphaH*255 + clamp(drawAlphaW+1,0,254)],
+                                     renderAlphas[clamp(drawAlphaH-1,0,254)*255 + drawAlphaW],
+                                     renderAlphas[clamp(drawAlphaH+1,0,254)*255 + drawAlphaW]);
                 if (alpha) {
-                    tile.getElevationCoordinate(h, w, coordLL);
-                    tile.getElevationCoordinate(h, w + 1, coordLR);
-                    tile.getElevationCoordinate(h + 1, w, coordUL);
+                    tile.getElevationCoordinate(drawAlphaH, drawAlphaW, coordLL);
+                    tile.getElevationCoordinate(drawAlphaH, drawAlphaW + 1, coordLR);
+                    tile.getElevationCoordinate(drawAlphaH + 1, drawAlphaW, coordUL);
                     var sx = lonPixel(coordUL.lon);
                     var sy = latPixel(coordUL.lat);
                     renderContext.fillStyle = "rgba(0,0,0," + alpha + ")";
@@ -193,6 +234,22 @@ var renderTileData = (function() {
             }
         }
 
-        return renderCanvas.toDataURL();
+        resetRenderingState();
+
+        worklist[0].callback(renderCanvas.toDataURL());
+        worklist = worklist.slice(1);
+
+        if (worklist.length)
+            setTimeout(renderTileWorklist);
+        else
+            hasWorklistTimer = false;
+    }
+
+    return function(tile, callback) {
+        worklist.push({tile:tile, callback:callback});
+        if (!hasWorklistTimer) {
+            hasWorklistTimer = true;
+            setTimeout(renderTileWorklist);
+        }
     }
 })();

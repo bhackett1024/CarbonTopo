@@ -13,6 +13,9 @@ var pointViewCanvas = document.getElementById("pointViewCanvas");
 var minZoom = 1;
 var maxZoom = 5;
 
+// Number of milliseconds to work at a time when rendering tile images or point views.
+var renderingBudget = 25;
+
 var tileDirectory = "tiles";
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -123,13 +126,14 @@ function findTile(coords)
 
         var elevationBuffer = zip.file(".elv").asArrayBuffer();
         computeElevationData(tile, elevationBuffer);
-        var imageUrl = renderTileData(tile);
 
-        tile.image = new Image();
-        tile.image.src = imageUrl;
-        tile.image.onload = function() {
-            setNeedUpdateScene();
-        }
+        renderTileData(tile, function(imageUrl) {
+            tile.image = new Image();
+            tile.image.src = imageUrl;
+            tile.image.onload = function() {
+                setNeedUpdateScene();
+            }
+        });
     }
     try {
         xhr.send();

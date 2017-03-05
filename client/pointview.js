@@ -631,7 +631,7 @@ function updatePointView()
                     } else {
                         // Check if we have exceeded our time budget for this frame.
                         var timeDiff = new Date - startTime;
-                        if (timeDiff >= 25) {
+                        if (timeDiff >= renderingBudget) {
                             dirty.nextX = i;
                             dirty.nextY = j;
                             dirty.nextDim = dim;
