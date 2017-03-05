@@ -12,7 +12,7 @@ var contourLineIntervalFeet = 100;
 var majorContourLineIntervalFeet = 500;
 
 var elevationColorFloor = 7000;
-var elevationColorCeiling = 13000;
+var elevationColorCeiling = 11500;
 
 var colorFloor = [180,255,180];
 var colorCeiling = [255,0,0];
