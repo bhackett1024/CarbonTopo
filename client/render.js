@@ -7,7 +7,7 @@
 
 var feetPerMeter = 3.28084;
 
-// Height of tile images, in pixels.
+// Pixel height of tile images.
 var renderedTileHeight = 1000;
 
 // Variables for controlling tile rendering.
@@ -17,6 +17,39 @@ var elevationColorFloor = 7000;
 var elevationColorCeiling = 11500;
 var colorFloor = [180,255,180];
 var colorCeiling = [255,0,0];
+var textPixelHeight = 14;
+var textFont = 'serif';
+var contourPixelDistanceSame = 400;
+var contourPixelDistanceDifferent = 150;
+var contourPixelDistanceBorder = 50;
+
+var majorContourIndexBias = 5;
+
+function computeMajorContourIndex(elv)
+{
+    return Math.round(elv * feetPerMeter / majorContourLineIntervalFeet) + majorContourIndexBias;
+}
+
+function majorContourIndexText(index)
+{
+    return "" + Math.round((index - majorContourIndexBias) * majorContourLineIntervalFeet);
+}
+
+const majorContourIndexNone = 0;
+const majorContourIndexInUse = 1;
+
+// computeMajorContourIndex should return an index in [2,255] for any major
+// contour on earth. Make sure the bias value is suitable for this purpose.
+(function() {
+    var minGlobalElevationFeet = -1410;
+    var maxGlobalElevationFeet = 29029;
+
+    var minIndex = computeMajorContourIndex(minGlobalElevationFeet / feetPerMeter);
+    assert(minIndex >= 2 && minIndex <= 255);
+
+    var maxIndex = computeMajorContourIndex(maxGlobalElevationFeet / feetPerMeter);
+    assert(maxIndex >= 2 && maxIndex <= 255);
+})();
 
 var renderTileData = (function() {
     // All tiles that are waiting to render. The active/next tile to render is
@@ -24,14 +57,19 @@ var renderTileData = (function() {
     // there is a timer for a pending call to renderTileWorklist.
     var worklist = [];
 
+    function currentTile() { return worklist[0].tile; }
+
     // Canvas/context used for rendering tiles.
     var renderCanvas = document.createElement('canvas');
     var renderContext = renderCanvas.getContext('2d', { alpha: false });
 
-    // Width of the current tile.
+    // Pixel width of the current tile.
     var renderedTileWidth = 0;
 
-    // Scratch data used while rendering.
+    // Rendering is based on a 255x255 grid. Each piece of this grid has as its
+    // corners one of the 256x256 elevation points for the tile.
+
+    // Temporary data used while rendering.
     var coordLL = new Coordinate();
     var coordLR = new Coordinate();
     var coordUL = new Coordinate();
@@ -39,18 +77,30 @@ var renderTileData = (function() {
     var contourPoints = [];
     var coordFreelist = [];
     var renderAlphas = new Float32Array(255 * 255);
+    var contourState = new Uint8Array(255 * 255);
+    var textLocations = [];
+    var textLocationFreelist = [];
+    var clearedContourPieces = [];
 
     // Start time of the current rendering slice.
     var renderStartTime = null;
 
     // Position in the various main rendering loops, for resuming work if
     // rendering stops in the middle of a slice.
-    var backgroundH, contourH, fillAlphaH, drawAlphaH;
+    var backgroundH, contourH, contourTextH, fillAlphaH, drawAlphaH;
 
     function resetRenderingState() {
-        backgroundH = contourH = fillAlphaH = drawAlphaH = 0;
+        backgroundH = contourH = contourTextH = fillAlphaH = drawAlphaH = 0;
+        for (var i = 0; i < textLocations.length; i++)
+            textLocationFreelist.push(textLocations[i]);
+        textLocations.length = 0;
     }
     resetRenderingState();
+
+    // Get an index into one of the various 255x255 arrays.
+    function gridIndex(h, w) { return h*255 + w; }
+    function gridIndexToHeight(index) { return Math.floor(index / 255); }
+    function gridIndexToWidth(index) { return index % 255; }
 
     function findContourPoints(firstCoord, secondCoord)
     {
@@ -77,12 +127,12 @@ var renderTileData = (function() {
 
     function lonPixel(lon)
     {
-        return clamp(Math.round((lon - worklist[0].tile.leftD) / tileD * renderedTileWidth), 0, renderedTileWidth);
+        return clamp(Math.round((lon - currentTile().leftD) / tileD * renderedTileWidth), 0, renderedTileWidth);
     }
 
     function latPixel(lat)
     {
-        return clamp(Math.round((worklist[0].tile.topD - lat) / tileD * renderedTileHeight), 0, renderedTileHeight);
+        return clamp(Math.round((currentTile().topD - lat) / tileD * renderedTileHeight), 0, renderedTileHeight);
     }
 
     function interpolateColor(first, second, fraction)
@@ -99,6 +149,17 @@ var renderTileData = (function() {
         return "rgb(" + r + "," + g + "," + b + ")";
     }
 
+    function drawBackground(h, w)
+    {
+        currentTile().getElevationCoordinate(h, w, coordLL);
+        currentTile().getElevationCoordinate(h, w + 1, coordLR);
+        currentTile().getElevationCoordinate(h + 1, w, coordUL);
+        var sx = lonPixel(coordUL.lon);
+        var sy = latPixel(coordUL.lat);
+        renderContext.fillStyle = elevationColor(coordLL.elv);
+        renderContext.fillRect(sx, sy, lonPixel(coordLR.lon) - sx, latPixel(coordLL.lat) - sy);
+    }
+
     function drawContour(firstCoord, secondCoord)
     {
         var sx = lonPixel(firstCoord.lon);
@@ -113,6 +174,139 @@ var renderTileData = (function() {
         renderContext.moveTo(sx, sy);
         renderContext.lineTo(tx, ty);
         renderContext.stroke();
+    }
+
+    function addTextLocation(x, y, text)
+    {
+        var location = textLocationFreelist.length ? textLocationFreelist.pop() : {};
+        location.x = x;
+        location.y = y;
+        location.text = text;
+        textLocations.push(location);
+    }
+
+    function mayDrawText(x, y, text)
+    {
+        if (x <= contourPixelDistanceBorder ||
+            y <= contourPixelDistanceBorder ||
+            (renderedTileWidth - x) <= contourPixelDistanceBorder ||
+            (renderedTileHeight - y) <= contourPixelDistanceBorder)
+        {
+            return false;
+        }
+        for (var i = 0; i < textLocations.length; i++) {
+            var location = textLocations[i];
+            var limit = (location.text == text) ? contourPixelDistanceSame : contourPixelDistanceDifferent;
+            var xdist = x - location.x;
+            var ydist = y - location.y;
+            if (Math.abs(xdist) + Math.abs(ydist) <= limit ||
+                xdist * xdist + ydist * ydist <= limit * limit)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function majorIndexMatches(h, w, index)
+    {
+        return clamp(h, 0, 255) == h && clamp(w, 0, 255) == w && contourState[gridIndex(h, w)] == index;
+    }
+
+    function computeMajorContourTextAngle(index, h, w)
+    {
+        const radius = 3;
+        for (var offset = -radius; offset <= radius; offset++) {
+            if (majorIndexMatches(h - radius, w + offset, index)) {
+                for (var miniOffset = -1; miniOffset <= 1; miniOffset++) {
+                    if (majorIndexMatches(h + radius, w - offset + miniOffset, index))
+                        return Math.atan(radius / (offset - miniOffset / 2));
+                }
+            }
+            if (majorIndexMatches(h + offset, w - radius, index)) {
+                for (var miniOffset = -1; miniOffset <= 1; miniOffset++) {
+                    if (majorIndexMatches(h - offset + miniOffset, w + radius, index))
+                        return Math.atan((offset - miniOffset / 2) / radius);
+                }
+            }
+        }
+        return undefined;
+    }
+
+    function pixelToNearestGridHeight(p)
+    {
+        return 256 - Math.round(p / renderedTileHeight * 256);
+    }
+
+    function pixelToNearestGridWidth(p)
+    {
+        return Math.round(p / renderedTileWidth * 256);
+    }
+
+    // Return whether a box centered at the origin with the specified width,
+    // height, and rotation angle contains x/y.
+    function pointIntersectsBox(x, y, width, height, angle)
+    {
+        return Math.abs(rotateX(x, y, -angle)) <= width / 2 &&
+               Math.abs(rotateY(x, y, -angle)) <= height / 2;
+    }
+
+    function addPendingClearedPiece(h, w)
+    {
+        var index = gridIndex(h, w);
+        if (contourState[index] == majorContourIndexInUse)
+            return false;
+        for (var i = 0; i < clearedContourPieces.length; i++) {
+            if (clearedContourPieces[i] == index)
+                return true;
+        }
+        clearedContourPieces.push(index);
+        return true;
+    }
+
+    function renderText(cx, cy, angle, text)
+    {
+        var textPixelWidth = renderContext.measureText(text).width;
+
+        var sin = Math.abs(Math.sin(angle));
+        var cos = Math.cos(angle);
+        var startH = pixelToNearestGridHeight(cy + sin * textPixelWidth + cos * textPixelHeight);
+        var endH = pixelToNearestGridHeight(cy - sin * textPixelWidth - cos * textPixelHeight);
+        var startW = pixelToNearestGridWidth(cx - cos * textPixelWidth - sin * textPixelHeight);
+        var endW = pixelToNearestGridWidth(cx + cos * textPixelWidth + sin * textPixelHeight);
+        for (var h = startH + 1; h < endH; h++) {
+            for (var w = startW + 1; w < endW; w++) {
+                var x = w / 256 * renderedTileWidth;
+                var y = renderedTileHeight - (h / 256 * renderedTileHeight);
+                if (pointIntersectsBox(x - cx, y - cy, textPixelWidth, textPixelHeight, angle)) {
+                    if (!addPendingClearedPiece(h - 1, w - 1) ||
+                        !addPendingClearedPiece(h - 1, w) ||
+                        !addPendingClearedPiece(h, w - 1) ||
+                        !addPendingClearedPiece(h, w))
+                    {
+                        return;
+                    }
+                }
+            }
+        }
+
+        for (var i = 0; i < clearedContourPieces.length; i++) {
+            var index = clearedContourPieces[i];
+            var h = gridIndexToHeight(index);
+            var w = gridIndexToWidth(index);
+            drawBackground(h, w);
+            contourState[index] = majorContourIndexInUse;
+        }
+        clearedContourPieces.length = 0;
+
+        // Compute rx and ry for drawing the text such that in the rotated
+        // canvas the rendered text will be placed with its center at cx/cy.
+        var rx = rotateX(cx, cy, -angle) - textPixelWidth / 2;
+        var ry = rotateY(cx, cy, -angle) + textPixelHeight / 2;
+        renderContext.rotate(angle);
+        renderContext.strokeText(text, rx, ry);
+        renderContext.rotate(-angle);
+        addTextLocation(cx, cy, text);
     }
 
     function stopRendering() {
@@ -146,20 +340,16 @@ var renderTileData = (function() {
             renderCanvas.width = renderedTileWidth;
         }
 
+        // Fill in the background color for each piece of the grid.
         for (; backgroundH < 255; backgroundH++) {
             if (stopRendering())
                 return;
-            for (var backgroundW = 0; backgroundW < 255; backgroundW++) {
-                tile.getElevationCoordinate(backgroundH, backgroundW, coordLL);
-                tile.getElevationCoordinate(backgroundH, backgroundW + 1, coordLR);
-                tile.getElevationCoordinate(backgroundH + 1, backgroundW, coordUL);
-                var sx = lonPixel(coordUL.lon);
-                var sy = latPixel(coordUL.lat);
-                renderContext.fillStyle = elevationColor(coordLL.elv);
-                renderContext.fillRect(sx, sy, lonPixel(coordLR.lon) - sx, latPixel(coordLL.lat) - sy);
-            }
+            for (var backgroundW = 0; backgroundW < 255; backgroundW++)
+                drawBackground(backgroundH, backgroundW);
         }
 
+        // Draw contour lines in each piece of the grid, and fill contourState
+        // with information about where the major contour lines are.
         for (; contourH < 255; contourH++) {
             if (stopRendering())
                 return;
@@ -176,6 +366,7 @@ var renderTileData = (function() {
 
                 assert(contourPoints.length % 2 == 0);
 
+                var majorIndex = "unknown";
                 while (contourPoints.length) {
                     var coord = contourPoints.pop();
                     var otherCoord = null;
@@ -190,13 +381,47 @@ var renderTileData = (function() {
                     assert(otherCoord);
                     drawContour(coord, otherCoord);
 
+                    if (coord.major) {
+                        var index = computeMajorContourIndex(coord.elv);
+                        if (majorIndex == "unknown")
+                            majorIndex = index;
+                        else if (majorIndex != index)
+                            majorIndex = "invalid";
+                    }
+
                     coordFreelist.push(coord, otherCoord);
                 }
+                contourState[gridIndex(contourH, contourW)] = (typeof majorIndex == "number") ? majorIndex : 0;
 
                 contourPoints.length = 0;
             }
         }
 
+        // Draw elevation text at major contour lines on the tile.
+        renderContext.font = textPixelHeight + 'px ' + textFont;
+        renderContext.textBaseline = 'bottom';
+        for (; contourTextH < 255; contourTextH++) {
+            if (stopRendering())
+                return;
+            for (var contourTextW = 0; contourTextW < 255; contourTextW++) {
+                var majorIndex = contourState[gridIndex(contourTextH, contourTextW)];
+                if (majorIndex <= majorContourIndexInUse)
+                    continue;
+                tile.getElevationCoordinate(contourTextH, contourTextW, coordLL);
+                var cx = lonPixel(coordLL.lon + tileD / 512);
+                var cy = latPixel(coordLL.lat + tileD / 512);
+                var text = majorContourIndexText(majorIndex);
+                if (!mayDrawText(cx, cy, text))
+                    continue;
+                var angle = computeMajorContourTextAngle(majorIndex, contourTextH, contourTextW);
+                if (angle == undefined)
+                    continue;
+                renderText(cx, cy, angle, text);
+            }
+        }
+
+        // Calculate alpha/shading information for each grid piece based on its
+        // steepness and aspect.
         for (; fillAlphaH < 255; fillAlphaH++) {
             if (stopRendering())
                 return;
@@ -216,19 +441,21 @@ var renderTileData = (function() {
                 var alpha = (verticalDiff || horizontalDiff)
                             ? clamp(verticalDiff / 40 + horizontalDiff / 30, 0, .4)
                             : 0;
-                renderAlphas[fillAlphaH*255 + fillAlphaW] = alpha;
+                renderAlphas[gridIndex(fillAlphaH, fillAlphaW)] = alpha;
             }
         }
 
+        // Draw shading for each grid piece, considering adjacent grid pieces
+        // as well to smooth out the resulting shading.
         for (; drawAlphaH < 255; drawAlphaH++) {
             if (stopRendering())
                 return;
             for (var drawAlphaW = 0; drawAlphaW < 255; drawAlphaW++) {
-                var alpha = Math.max(renderAlphas[drawAlphaH*255 + drawAlphaW],
-                                     renderAlphas[drawAlphaH*255 + clamp(drawAlphaW-1,0,254)],
-                                     renderAlphas[drawAlphaH*255 + clamp(drawAlphaW+1,0,254)],
-                                     renderAlphas[clamp(drawAlphaH-1,0,254)*255 + drawAlphaW],
-                                     renderAlphas[clamp(drawAlphaH+1,0,254)*255 + drawAlphaW]);
+                var alpha = Math.max(renderAlphas[gridIndex(drawAlphaH, drawAlphaW)],
+                                     renderAlphas[gridIndex(drawAlphaH, clamp(drawAlphaW-1,0,254))],
+                                     renderAlphas[gridIndex(drawAlphaH, clamp(drawAlphaW+1,0,254))],
+                                     renderAlphas[gridIndex(clamp(drawAlphaH-1,0,254), drawAlphaW)],
+                                     renderAlphas[gridIndex(clamp(drawAlphaH+1,0,254), drawAlphaW)]);
                 if (alpha) {
                     tile.getElevationCoordinate(drawAlphaH, drawAlphaW, coordLL);
                     tile.getElevationCoordinate(drawAlphaH, drawAlphaW + 1, coordLR);
