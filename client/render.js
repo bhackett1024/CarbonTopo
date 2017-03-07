@@ -168,12 +168,16 @@ var renderTileData = (function() {
         var ty = latPixel(secondCoord.lat);
 
         assert(firstCoord.major == secondCoord.major);
-        renderContext.lineWidth = firstCoord.major ? 3 : 1;
+        if (firstCoord.major)
+            renderContext.lineWidth = 3;
 
         renderContext.beginPath();
         renderContext.moveTo(sx, sy);
         renderContext.lineTo(tx, ty);
         renderContext.stroke();
+
+        if (firstCoord.major)
+            renderContext.lineWidth = 1;
     }
 
     function addTextLocation(x, y, text)
