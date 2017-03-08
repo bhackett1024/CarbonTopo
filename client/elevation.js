@@ -38,6 +38,7 @@ function Tile(leftD, topD)
     this.topD = topD;
     this.image = null;
     this.imageData = null;
+    this.fillStyle = "rgb(0,0,0)";
 
     // Elevation tree as described above.
     this.elevationTree = null;
@@ -45,8 +46,6 @@ function Tile(leftD, topD)
     // Elevation for the 256x256 points in the matrix, in row-major order
     // starting at the lower left corner.
     this.elevationData = null;
-
-    this.invalid = false;
 }
 
 Tile.prototype.getElevationData = function(h, w) {

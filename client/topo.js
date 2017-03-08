@@ -112,33 +112,47 @@ function findTile(coords)
 
     allTiles[file] = tile;
 
+    function reject(reason) {
+        console.log(reason);
+        tile.fillStyle = "rgb(255,0,0)";
+    }
+
     var xhr = new XMLHttpRequest();
     xhr.open('GET', file, true);
     xhr.responseType = 'arraybuffer';
     xhr.onload = function(e) {
         if (this.status != 200) {
-            tile.invalid = true;
+            tile.fillStyle = "rgb(255,0,0)";
             return;
         }
 
-        var zip = new JSZip();
-        zip.load(this.response);
+        tile.fillStyle = "rgb(0,0,255)";
 
-        var elevationBuffer = zip.file(".elv").asArrayBuffer();
-        computeElevationData(tile, elevationBuffer);
+        try {
+            JSZip.loadAsync(this.response).then(function(zip) {
+                zip.file(".elv").async("arraybuffer").then(function(elevationBuffer) {
+                    computeElevationData(tile, elevationBuffer);
 
-        renderTileData(tile, function(imageUrl) {
-            tile.image = new Image();
-            tile.image.src = imageUrl;
-            tile.image.onload = function() {
-                setNeedUpdateScene();
-            }
-        });
+                    renderTileData(tile, function(imageUrl) {
+                        tile.image = new Image();
+                        tile.image.src = imageUrl;
+                        tile.image.onload = function() {
+                            setNeedUpdateScene();
+                        }
+                    });
+                }, reject);
+            }, reject);
+        } catch (e) {
+            reject(e);
+        }
+    }
+    xhr.onerror = function() {
+        tile.fillStyle = "rgb(127,127,127)";
     }
     try {
         xhr.send();
     } catch (e) {
-        tile.invalid = true;
+        reject(e);
     }
 
     return tile;
@@ -156,8 +170,6 @@ function updateOverheadView()
     context.fillStyle = "rgb(0,0,0)";
     context.fillRect(0, 0, width, height);
 
-    context.fillStyle = "rgb(255,0,0)";
-
     var leftD = (overheadView.centerLon - overheadView.degreesPerPixel.lon * width / 2);
     var rightD = (overheadView.centerLon + overheadView.degreesPerPixel.lon * width / 2);
     var topD = (overheadView.centerLat + overheadView.degreesPerPixel.lat * height / 2);
@@ -174,10 +186,12 @@ function updateOverheadView()
             var topP = Math.floor(overheadView.latitudePixel(tile.topD));
             var bottomP = Math.ceil(overheadView.latitudePixel(tile.topD - tileD));
 
-            if (tile.image && tile.image.width && tile.image.height)
+            if (tile.image && tile.image.width && tile.image.height) {
                 context.drawImage(tile.image, leftP, topP, rightP - leftP, bottomP - topP);
-            else if (!tile.invalid)
+            } else {
+                context.fillStyle = tile.fillStyle;
                 context.fillRect(leftP, topP, rightP - leftP, bottomP - topP);
+            }
         }
     }
 
@@ -249,6 +263,7 @@ function resizeEvent() {
 window.addEventListener('resize', resizeEvent);
 
 function clickEvent(ev) {
+    /*
     var coords = screenCoordinatesToLatlong(overheadView, ev.clientX, ev.clientY);
     var elevation = computeElevation(coords);
 
@@ -261,6 +276,7 @@ function clickEvent(ev) {
 
     console.log("EVENT " + coords.lon + " " + coords.lat + " ELEVATION " +
                 Math.round(elevation * feetPerMeter) + " R " + color.r + " G " + color.g + " B " + color.b);
+    */
 }
 window.addEventListener('click', clickEvent);
 
