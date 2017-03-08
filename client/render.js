@@ -20,8 +20,8 @@ var colorCeiling = [255,0,0];
 var textPixelHeight = 14;
 var textFont = 'serif';
 var contourPixelDistanceSame = 400;
-var contourPixelDistanceDifferent = 150;
-var contourPixelDistanceBorder = 50;
+var contourPixelDistanceDifferent = 200;
+var contourPixelDistanceBorder = 100;
 
 var majorContourIndexBias = 5;
 
