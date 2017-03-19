@@ -3,6 +3,9 @@
 
 "use strict";
 
+// All generated tiles are 2.5 minutes on each side.
+var tileD = 2.5 / 60;
+
 // Coordinate latitude/longitude are in degrees, elevations are in meters.
 function Coordinate(lat, lon, elevation)
 {

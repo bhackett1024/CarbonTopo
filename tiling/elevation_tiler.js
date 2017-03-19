@@ -2,40 +2,35 @@
 /* Copyright 2015-2017 Brian Hackett. Released under the MIT license. */
 
 // Given one or more input 1 degree AIG binary grids, populate a destination
-// directory with reformatted files for each 2.5 minute x 2.5 minute tile.
+// directory with reformatted elevation data files for each tile.
 
 load('../client/utility.js');
 load('utility.js');
 
 if (scriptArgs.length == 0) {
-    print("Usage: js elevation_tiler.js dstDirectory src0.zip src1.zip ...");
+    print("Usage: js elevation_tiler.js elevationDirectory src0.zip src1.zip ...");
     quit();
 }
 
 var destinationDirectory = scriptArgs[0];
-
-var tmpFile = "/tmp/tiler" + ((Math.random() * 1000000) | 0);
-var tmpTxt = tmpFile + ".txt";
-
-// The tiles we're generating are 2.5 minutes on each side.
-var tileD = 2.5 / 60;
+os.system(`mkdir ${destinationDirectory} 2> /dev/null`);
 
 for (var i = 1; i < scriptArgs.length; i++) {
     try {
-        generateElevationTiles(scriptArgs[i]);
+        processDirectory(scriptArgs[i]);
     } finally {
         os.system("rm -rf tmp");
-        os.system("rm -f .elv");
     }
 }
 
-function generateElevationTiles(sourceZip) {
+function processDirectory(sourceZip)
+{
     print("Processing " + sourceZip);
 
     os.system(`unzip ${sourceZip} -d tmp 2> /dev/null > /dev/null`);
 
     os.system(`ls tmp/*/metadata.xml > ${tmpTxt}`);
-    var sourceGrid = /tmp\/(.*?)\//.exec(snarf(tmpTxt))[1];
+    var sourceGrid = /tmp\/(.*?)\//.exec(os.file.readFile(tmpTxt))[1];
 
     // Make sure the source uses NAD 83.
     os.system(`gdalinfo "tmp/${sourceGrid}" > ${tmpTxt}`);
@@ -106,7 +101,7 @@ function generateElevationTiles(sourceZip) {
 
     function generateTile(leftD, topD) {
         // Generate a tile with the specified lon and lat at the upper left corner.
-        var dstFile = tileFile(destinationDirectory, leftD, topD, ".zip");
+        var dstFile = tileFile(destinationDirectory, leftD, topD, ".elv");
 
         var rightD = leftD + tileD;
         var bottomD = topD - tileD;
@@ -142,8 +137,6 @@ function generateElevationTiles(sourceZip) {
             }
         }
 
-        os.file.writeTypedArrayToFile(".elv", new Uint8Array(outputData));
-        os.system(`zip ${dstFile} .elv`);
-        os.system("rm .elv");
+        os.file.writeTypedArrayToFile(dstFile, new Uint8Array(outputData));
     }
 }

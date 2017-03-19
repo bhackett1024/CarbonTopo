@@ -30,8 +30,6 @@
 // This scheme is set up so that going from an entry in one layer |n| to one of
 // its quadrants q (from [0,3]) is merely n*4+1+q.
 
-var tileD = 2.5 / 60;
-
 function Tile(leftD, topD)
 {
     this.leftD = leftD;
