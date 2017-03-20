@@ -1,5 +1,5 @@
 /* -*- indent-tabs-mode: nil; js-indent-level: 4; js-indent-level: 4 -*- */
-/* Copyright 2017 Brian Hackett. Released under the MIT license. */
+/* Copyright 2015-2017 Brian Hackett. Released under the MIT license. */
 
 // Given one or more input hydrography shapefile zips, populate a destination
 // directory with reformatted hydrography data files for each tile.
@@ -22,7 +22,7 @@ for (var i = 1; i < scriptArgs.length; i++) {
     try {
         processDirectory(scriptArgs[i]);
     } finally {
-        //os.system("rm -rf tmp");
+        os.system("rm -rf tmp");
     }
 }
 
@@ -30,7 +30,7 @@ function processDirectory(sourceZip)
 {
     print("Processing Zip " + sourceZip);
 
-    //os.system(`unzip ${sourceZip} -d tmp 2> /dev/null > /dev/null`);
+    os.system(`unzip ${sourceZip} -d tmp 2> /dev/null > /dev/null`);
 
     os.system("ls tmp/*.shp > " + tmpTxt);
     var shapeFiles = snarf(tmpTxt).split('\n');
@@ -79,8 +79,6 @@ function processShapeFile(shapeFile)
         }
     }
     assertEq(typeof geometry == "string", true);
-
-    //assertEq(geometry, "Polygon");
 
     if (geometry != "Polygon")
         return;

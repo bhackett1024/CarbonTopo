@@ -130,7 +130,7 @@ function findTile(coords)
 
         try {
             JSZip.loadAsync(this.response).then(function(zip) {
-                zip.file(".elv").async("arraybuffer").then(function(elevationBuffer) {
+                zip.file("elv").async("arraybuffer").then(function(elevationBuffer) {
                     computeElevationData(tile, elevationBuffer);
 
                     renderTileData(tile, function(imageUrl) {
