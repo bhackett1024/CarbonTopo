@@ -12,6 +12,9 @@ if (scriptArgs.length == 0) {
     quit();
 }
 
+var TAG_POLYGON = 0;
+var writtenPolygonCount = 0;
+
 var destinationDirectory = scriptArgs[0];
 os.system(`mkdir ${destinationDirectory} 2> /dev/null`);
 
@@ -25,7 +28,7 @@ for (var i = 1; i < scriptArgs.length; i++) {
 
 function processDirectory(sourceZip)
 {
-    print("Processing " + sourceZip);
+    print("Processing Zip " + sourceZip);
 
     //os.system(`unzip ${sourceZip} -d tmp 2> /dev/null > /dev/null`);
 
@@ -39,9 +42,29 @@ function processDirectory(sourceZip)
     }
 }
 
+function ignoreShapeFile(shapeFile)
+{
+    // These shape files don't seem to describe any features of interest.
+    var blacklist = [
+        /NHDArea/,
+        /WBDHU2/,
+        /WBDHU4/,
+        /WBDHU6/,
+        /WBDHU8/,
+    ];
+    for (var i = 0; i < blacklist.length; i++) {
+        if (blacklist[i].test(shapeFile))
+            return true;
+    }
+    return false;
+}
+
 function processShapeFile(shapeFile)
 {
-    print("FILE " + shapeFile);
+    if (ignoreShapeFile(shapeFile))
+        return;
+
+    print("Processing ShapeFile " + shapeFile);
 
     os.system(`ogrinfo -al ${shapeFile} > ${tmpTxt}`);
     var lines = os.file.readFile(tmpTxt).split('\n');
@@ -57,7 +80,10 @@ function processShapeFile(shapeFile)
     }
     assertEq(typeof geometry == "string", true);
 
-    assertEq(geometry, "Polygon");
+    //assertEq(geometry, "Polygon");
+
+    if (geometry != "Polygon")
+        return;
 
     for (; line < lines.length; line++) {
         if (/DATUM/.test(lines[line])) {
@@ -66,22 +92,29 @@ function processShapeFile(shapeFile)
         }
     }
 
-    var currentName;
+    var currentName = null;
 
     for (; line < lines.length; line++) {
-        if (arr = /GNIS_NAME \(String\) = (.*)/.exec(lines[line]))
-            currentName = arr[1];
+        if (/OGRFeature/.test(lines[line]))
+            currentName = null;
+
+        if (arr = /^  (GNIS_)?NAME \(String\) = (.*)/.exec(lines[line]))
+            currentName = arr[2];
 
         if (arr = /POLYGON \(\((.*?)\)\)/.exec(lines[line])) {
-            var poly = arr[1].split(',');
-            var points = [];
-            for (var i = 0; i < poly.length; i++) {
-                var coords = /(.*?) (.*)/.test(points[i]);
-                var lon = +coords[1];
-                var lat = +coords[2];
-                points.push(new Coordinate(lat, lon));
+            var polyList = arr[1].split("),(");
+            for (var i = 0; i < polyList.length; i++) {
+                var poly = polyList[i].split(',');
+                var points = [];
+                for (var j = 0; j < poly.length; j++) {
+                    var coords = /(.*?) (.*)/.exec(poly[j]);
+                    var lon = +coords[1];
+                    var lat = +coords[2];
+                    points.push(new Coordinate(lat, lon));
+                }
+                print("Processing polygon \"" + currentName + "\"");
+                processPolygon(currentName, points);
             }
-            processPolygon(currentName, points);
         }
     }
 }
@@ -124,7 +157,8 @@ function insertTileBorderPoints(points)
 
 function processPolygon(name, points)
 {
-    assertEq("" + points[0], "" + points[points.length - 1]);
+    if ("" + points[0] != "" + points[points.length - 1])
+        points.push(points[0]);
 
     insertTileBorderPoints(points);
 
@@ -139,28 +173,85 @@ function processPolygon(name, points)
         bottomD = Math.min(bottomD, points[i].lat);
     }
 
+    var what = 0;
     for (var lon = getTileLeftD(leftD); lon < rightD; lon += tileD) {
         for (var lat = getTileBottomD(bottomD); lat < topD; lat += tileD)
             processPolygonTile(name, points, lon, lat);
     }
 }
 
-function processPolygonTile(name, points, leftD, bottomD)
+function tileContainsPoint(leftD, bottomD, point)
 {
     var rightD = leftD + tileD;
     var topD = bottomD + tileD;
+    return point.lat >= bottomD && point.lat <= topD && point.lon >= leftD && point.lon <= rightD;
+}
 
-    var poly = [];
+function encodeString(data, name)
+{
+    if (name != "(null)") {
+        for (var i = 0; i < name.length; i++) {
+            var code = name.charCodeAt(i);
+            assertEq(code >= 1 && code <= 255, true);
+            data.push(code);
+        }
+    }
+    data.push(0);
+}
 
+function writePolygon(name, poly, leftD, bottomD)
+{
+    if (poly.length <= 2)
+        return;
+
+    var dstFile = tileFile(destinationDirectory, leftD, bottomD + tileD, ".hyd");
+
+    var existingData = null;
+    try {
+        existingData = os.file.readFile(dstFile);
+    } catch (e) {}
+
+    var newData = [];
+    if (existingData) {
+        for (var i = 0; i < existingData.length; i++)
+            newData.push(existingData[i]);
+    }
+
+    newData.push(TAG_POLYGON);
+    encodeString(newData, name);
+    for (var i = 0; i < poly.length; i++) {
+        newData.push(poly[i].h);
+        newData.push(poly[i].w);
+    }
+
+    os.file.writeTypedArrayToFile(dstFile, new Uint8Array(newData));
+}
+
+function processPolygonTile(name, points, leftD, bottomD)
+{
+    var firstOutsidePoint = -1;
     for (var i = 0; i < points.length; i++) {
-        var point = points[i];
-        if (point.lat >= bottomD && point.lat <= topD && point.lon >= leftD && point.lon <= rightD) {
-            var h = Math.round((point.lat - bottomD) / tileD * 255);
-            var w = Math.round((point.lon - leftD) / tileD * 255);
-            poly.push({h:h,w:w});
+        if (!tileContainsPoint(leftD, bottomD, points[i])) {
+            firstOutsidePoint = i;
+            break;
         }
     }
 
-    for (var i = 0; i < poly.length; i++) {
-    }
+    var startPoint = firstOutsidePoint != -1 ? firstOutsidePoint : 0;
+    var i = startPoint;
+    var poly = [];
+    do {
+        var point = points[i];
+        if (tileContainsPoint(leftD, bottomD, point)) {
+            var h = Math.round((point.lat - bottomD) / tileD * 255);
+            var w = Math.round((point.lon - leftD) / tileD * 255);
+            poly.push({h:h,w:w});
+        } else {
+            writePolygon(name, poly, leftD, bottomD);
+            poly = [];
+        }
+        i = i = (i + 1) % points.length;
+    } while (i != startPoint);
+
+    writePolygon(name, poly, leftD, bottomD);
 }
