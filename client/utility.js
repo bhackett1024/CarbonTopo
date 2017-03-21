@@ -135,6 +135,9 @@ Decoder.prototype.readString = function()
     return str;
 }
 
+// Tags in encoded hydrography data.
+var TAG_POLYGON = 0;
+
 ///////////////////////////////////////////////////////////////////////////////
 // Other Stuff
 ///////////////////////////////////////////////////////////////////////////////
@@ -204,6 +207,3 @@ function logger(str)
     else if (loggerCount == loggerLimit)
         console.log("Logging limit reached...");
 }
-
-// Tags in encoded hydrography data.
-var TAG_POLYGON = 0;

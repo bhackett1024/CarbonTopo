@@ -41,18 +41,13 @@ function processDirectory(sourceZip)
 
 function ignoreShapeFile(shapeFile)
 {
-    // These shape files don't seem to describe any features of interest.
-    var blacklist = [
-        /NHDArea/,
-        /WBDHU2/,
-        /WBDHU4/,
-        /WBDHU6/,
-        /WBDHU8/,
-    ];
-    for (var i = 0; i < blacklist.length; i++) {
-        if (blacklist[i].test(shapeFile))
-            return true;
-    }
+    if (/NHDWaterbody/.test(shapeFile))
+        return false;
+    return true;
+}
+
+function ignorePolygon(name)
+{
     return false;
 }
 
@@ -97,6 +92,8 @@ function processShapeFile(shapeFile)
             currentName = arr[2];
 
         if (arr = /POLYGON \(\((.*?)\)\)/.exec(lines[line])) {
+            if (ignorePolygon(currentName))
+                continue;
             var polyList = arr[1].split("),(");
             for (var i = 0; i < polyList.length; i++) {
                 var poly = polyList[i].split(',');
@@ -191,7 +188,7 @@ function writePolygon(name, poly, leftD, bottomD)
 
     var existingData = null;
     try {
-        existingData = os.file.readFile(dstFile);
+        existingData = os.file.readFile(dstFile, "binary");
     } catch (e) {}
 
     var output = new Encoder();
