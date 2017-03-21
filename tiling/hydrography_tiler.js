@@ -31,21 +31,33 @@ function processDirectory(sourceZip)
     }
 }
 
-function ignoreShapeFile(shapeFile)
+function handleShapeFile(shapeFile)
 {
-    if (/NHDWaterbody/.test(shapeFile))
-        return false;
+    return /NHDWaterbody/.test(shapeFile) || /NHDFlowline/.test(shapeFile);
+}
+
+function handleFeature(name)
+{
+    assert(name);
     return true;
 }
 
-function ignorePolygon(name)
+function parsePointList(str)
 {
-    return false;
+    var items = str.split(',');
+    var points = [];
+    for (var i = 0; i < items.length; i++) {
+        var coords = /(.*?) (.*)/.exec(items[i]);
+        var lon = +coords[1];
+        var lat = +coords[2];
+        points.push(new Coordinate(lat, lon));
+    }
+    return points;
 }
 
 function processShapeFile(shapeFile)
 {
-    if (ignoreShapeFile(shapeFile))
+    if (!handleShapeFile(shapeFile))
         return;
 
     print("Processing ShapeFile " + shapeFile);
@@ -62,10 +74,8 @@ function processShapeFile(shapeFile)
             break;
         }
     }
-    assertEq(typeof geometry == "string", true);
-
-    if (geometry != "Polygon")
-        return;
+    assert(typeof geometry == "string");
+    assert(geometry == "Polygon" || geometry == "Line String");
 
     for (; line < lines.length; line++) {
         if (/DATUM/.test(lines[line])) {
@@ -80,25 +90,24 @@ function processShapeFile(shapeFile)
         if (/OGRFeature/.test(lines[line]))
             currentName = null;
 
-        if (arr = /^  (GNIS_)?NAME \(String\) = (.*)/.exec(lines[line]))
-            currentName = arr[2];
+        if (arr = /^  GNIS_NAME \(String\) = (.*)/.exec(lines[line]))
+            currentName = arr[1];
 
         if (arr = /POLYGON \(\((.*?)\)\)/.exec(lines[line])) {
-            if (ignorePolygon(currentName))
+            if (!handleFeature(currentName))
                 continue;
-            print("Processing polygon \"" + currentName + "\"");
             var polyList = arr[1].split("),(");
             for (var i = 0; i < polyList.length; i++) {
-                var poly = polyList[i].split(',');
-                var points = [];
-                for (var j = 0; j < poly.length; j++) {
-                    var coords = /(.*?) (.*)/.exec(poly[j]);
-                    var lon = +coords[1];
-                    var lat = +coords[2];
-                    points.push(new Coordinate(lat, lon));
-                }
-                processPolygon(currentName, points);
+                var points = parsePointList(polyList[i]);
+                processFeature(currentName, points, true);
             }
+        }
+
+        if (arr = /LINESTRING \((.*?)\)/.exec(lines[line])) {
+            if (!handleFeature(currentName))
+                continue;
+            var points = parsePointList(arr[1]);
+            processFeature(currentName, points, false);
         }
     }
 }
@@ -149,14 +158,16 @@ function insertTileBorderPoints(points)
     }
 }
 
-function processPolygon(name, points)
+function processFeature(name, points, isPolygon)
 {
-    if ("" + points[0] != "" + points[points.length - 1])
+    print("Processing feature \"" + name + "\"");
+
+    if (isPolygon && ("" + points[0] != "" + points[points.length - 1]))
         points.push(points[0]);
 
     insertTileBorderPoints(points);
 
-    // Find a bounding box for the entire polygon.
+    // Find a bounding box for the entire feature.
     var leftD, topD, bottomD, rightD;
     leftD = rightD = points[0].lon;
     topD = bottomD = points[0].lat;
@@ -170,7 +181,7 @@ function processPolygon(name, points)
     var what = 0;
     for (var lon = getTileLeftD(leftD); lon < rightD; lon += tileD) {
         for (var lat = getTileBottomD(bottomD); lat < topD; lat += tileD)
-            processPolygonTile(name, points, lon, lat);
+            processFeatureTile(name, points, lon, lat, isPolygon);
     }
 }
 
@@ -184,9 +195,9 @@ function tileContainsPoint(leftD, bottomD, point)
         && lessThanOrEqual(point.lon, rightD);
 }
 
-function writePolygon(name, poly, leftD, bottomD)
+function writeFeature(name, points, leftD, bottomD, isPolygon)
 {
-    if (poly.length <= 2)
+    if (points.length <= 1)
         return;
 
     var dstFile = tileFile(destinationDirectory, leftD, bottomD + tileD, ".hyd");
@@ -201,17 +212,17 @@ function writePolygon(name, poly, leftD, bottomD)
         output.writeTypedArray(existingData);
 
     output.writeString(name != "(null)" ? name : "");
-    output.writeByte(TAG_POLYGON);
-    output.writeNumber(poly.length);
-    for (var i = 0; i < poly.length; i++) {
-        output.writeByte(poly[i].h);
-        output.writeByte(poly[i].w);
+    output.writeByte(isPolygon ? TAG_POLYGON : TAG_LINE);
+    output.writeNumber(points.length);
+    for (var i = 0; i < points.length; i++) {
+        output.writeByte(points[i].h);
+        output.writeByte(points[i].w);
     }
 
     os.file.writeTypedArrayToFile(dstFile, output.toTypedArray());
 }
 
-function processPolygonTile(name, points, leftD, bottomD)
+function processFeatureTile(name, points, leftD, bottomD, isPolygon)
 {
     var firstOutsidePoint = -1;
     for (var i = 0; i < points.length; i++) {
@@ -223,21 +234,21 @@ function processPolygonTile(name, points, leftD, bottomD)
 
     var startPoint = firstOutsidePoint != -1 ? firstOutsidePoint : 0;
     var i = startPoint;
-    var poly = [];
+    var tilePoints = [];
     do {
         var point = points[i];
         if (tileContainsPoint(leftD, bottomD, point)) {
             var h = Math.round((point.lat - bottomD) / tileD * 255);
             var w = Math.round((point.lon - leftD) / tileD * 255);
-            poly.push({h:h,w:w});
+            tilePoints.push({h:h,w:w});
         } else {
-            writePolygon(name, poly, leftD, bottomD);
-            poly = [];
+            writeFeature(name, tilePoints, leftD, bottomD, isPolygon);
+            tilePoints = [];
         }
         i = i = (i + 1) % points.length;
     } while (i != startPoint);
 
-    writePolygon(name, poly, leftD, bottomD);
+    writeFeature(name, tilePoints, leftD, bottomD, isPolygon);
 }
 
 for (var i = 1; i < scriptArgs.length; i++) {

@@ -137,6 +137,7 @@ Decoder.prototype.readString = function()
 
 // Tags in encoded hydrography data.
 var TAG_POLYGON = 0;
+var TAG_LINE = 1;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Other Stuff

@@ -407,32 +407,27 @@ var renderTileData = (function() {
         while (!hydrographyDecoder.finished()) {
             var name = hydrographyDecoder.readString();
             var tag = hydrographyDecoder.readByte();
+            assert(tag == TAG_POLYGON || tag == TAG_LINE);
 
-            switch (tag) {
-              case TAG_POLYGON:
-                var numPoints = hydrographyDecoder.readNumber();
+            var numPoints = hydrographyDecoder.readNumber();
 
-                renderContext.strokeStyle = 'rgb(0,0,180)';
-                renderContext.fillStyle = 'rgb(120,120,255)';
-                renderContext.lineWidth = 5;
-                renderContext.beginPath();
-                var h = hydrographyDecoder.readByte();
-                var w = hydrographyDecoder.readByte();
+            renderContext.strokeStyle = 'rgb(0,0,180)';
+            renderContext.fillStyle = 'rgb(120,120,255)';
+            renderContext.lineWidth = 5;
+            renderContext.beginPath();
+            var h = hydrographyDecoder.readByte();
+            var w = hydrographyDecoder.readByte();
+            tile.getElevationCoordinate(h, w, coordLL);
+            renderContext.moveTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
+            for (var i = 1; i < numPoints; i++) {
+                h = hydrographyDecoder.readByte();
+                w = hydrographyDecoder.readByte();
                 tile.getElevationCoordinate(h, w, coordLL);
-                renderContext.moveTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
-                for (var i = 1; i < numPoints; i++) {
-                    h = hydrographyDecoder.readByte();
-                    w = hydrographyDecoder.readByte();
-                    tile.getElevationCoordinate(h, w, coordLL);
-                    renderContext.lineTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
-                }
-                renderContext.stroke();
-                renderContext.fill();
-                break;
-
-              default:
-                throw new Error("Unknown hydrography tag");
+                renderContext.lineTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
             }
+            renderContext.stroke();
+            if (tag == TAG_POLYGON)
+                renderContext.fill();
 
             if (stopRendering())
                 return;
