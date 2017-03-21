@@ -170,16 +170,11 @@ var renderTileData = (function() {
         var ty = latPixel(secondCoord.lat);
 
         assert(firstCoord.major == secondCoord.major);
-        if (firstCoord.major)
-            renderContext.lineWidth = 3;
-
+        renderContext.lineWidth = firstCoord.major ? 3 : 1;
         renderContext.beginPath();
         renderContext.moveTo(sx, sy);
         renderContext.lineTo(tx, ty);
         renderContext.stroke();
-
-        if (firstCoord.major)
-            renderContext.lineWidth = 1;
     }
 
     function addTextLocation(x, y, text)
@@ -310,6 +305,8 @@ var renderTileData = (function() {
         var rx = rotateX(cx, cy, -angle) - textPixelWidth / 2;
         var ry = rotateY(cx, cy, -angle) + textPixelHeight / 2;
         renderContext.rotate(angle);
+        renderContext.lineWidth = 1;
+        renderContext.strokeStyle = 'rgb(0,0,0)';
         renderContext.strokeText(text, rx, ry);
         renderContext.rotate(-angle);
         addTextLocation(cx, cy, text);
@@ -415,8 +412,9 @@ var renderTileData = (function() {
               case TAG_POLYGON:
                 var numPoints = hydrographyDecoder.readNumber();
 
-                renderContext.strokeStyle = 'rgb(0,0,255)';
-                renderContext.lineWidth = 2;
+                renderContext.strokeStyle = 'rgb(0,0,180)';
+                renderContext.fillStyle = 'rgb(120,120,255)';
+                renderContext.lineWidth = 5;
                 renderContext.beginPath();
                 var h = hydrographyDecoder.readByte();
                 var w = hydrographyDecoder.readByte();
@@ -429,7 +427,7 @@ var renderTileData = (function() {
                     renderContext.lineTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
                 }
                 renderContext.stroke();
-                renderContext.strokeStyle = 'rgb(0,0,0)';
+                renderContext.fill();
                 break;
 
               default:
