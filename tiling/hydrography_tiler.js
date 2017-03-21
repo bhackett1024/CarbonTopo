@@ -15,14 +15,6 @@ if (scriptArgs.length == 0) {
 var destinationDirectory = scriptArgs[0];
 os.system(`mkdir ${destinationDirectory} 2> /dev/null`);
 
-for (var i = 1; i < scriptArgs.length; i++) {
-    try {
-        processDirectory(scriptArgs[i]);
-    } finally {
-        os.system("rm -rf tmp");
-    }
-}
-
 function processDirectory(sourceZip)
 {
     print("Processing Zip " + sourceZip);
@@ -94,6 +86,7 @@ function processShapeFile(shapeFile)
         if (arr = /POLYGON \(\((.*?)\)\)/.exec(lines[line])) {
             if (ignorePolygon(currentName))
                 continue;
+            print("Processing polygon \"" + currentName + "\"");
             var polyList = arr[1].split("),(");
             for (var i = 0; i < polyList.length; i++) {
                 var poly = polyList[i].split(',');
@@ -104,7 +97,6 @@ function processShapeFile(shapeFile)
                     var lat = +coords[2];
                     points.push(new Coordinate(lat, lon));
                 }
-                print("Processing polygon \"" + currentName + "\"");
                 processPolygon(currentName, points);
             }
         }
@@ -132,12 +124,22 @@ function insertTileBorderPoints(points)
         var borderFractions = [];
         var minLon = Math.min(point.lon, nextPoint.lon);
         var maxLon = Math.max(point.lon, nextPoint.lon);
-        for (var lon = getTileLeftD(minLon) + tileD; lon < maxLon; lon += tileD)
-            borderFractions.push(Math.abs(lon - point.lon) / Math.abs(nextPoint.lon - point.lon));
+        var lonDiff = Math.abs(point.lon - nextPoint.lon);
+        for (var lon = getTileLeftD(minLon) + tileD; lon < maxLon; lon += tileD) {
+            if (point.lon < nextPoint.lon)
+                borderFractions.push(1 - (lon - point.lon) / lonDiff);
+            else
+                borderFractions.push((lon - nextPoint.lon) / lonDiff);
+        }
         var minLat = Math.min(point.lat, nextPoint.lat);
         var maxLat = Math.max(point.lat, nextPoint.lat);
-        for (var lat = getTileBottomD(minLat) + tileD; lat < maxLat; lat += tileD)
-            borderFractions.push(Math.abs(lat - point.lat) / Math.abs(nextPoint.lat - point.lat));
+        var latDiff = Math.abs(point.lat - nextPoint.lat);
+        for (var lat = getTileBottomD(minLat) + tileD; lat < maxLat; lat += tileD) {
+            if (point.lat < nextPoint.lat)
+                borderFractions.push(1 - (lat - point.lat) / latDiff);
+            else
+                borderFractions.push((lat - nextPoint.lat) / latDiff);
+        }
         borderFractions.sort();
         for (var j = 0; j < borderFractions.length; j++) {
             var newPoint = new Coordinate;
@@ -176,7 +178,10 @@ function tileContainsPoint(leftD, bottomD, point)
 {
     var rightD = leftD + tileD;
     var topD = bottomD + tileD;
-    return point.lat >= bottomD && point.lat <= topD && point.lon >= leftD && point.lon <= rightD;
+    return lessThanOrEqual(bottomD, point.lat)
+        && lessThanOrEqual(point.lat, topD)
+        && lessThanOrEqual(leftD, point.lon)
+        && lessThanOrEqual(point.lon, rightD);
 }
 
 function writePolygon(name, poly, leftD, bottomD)
@@ -233,4 +238,12 @@ function processPolygonTile(name, points, leftD, bottomD)
     } while (i != startPoint);
 
     writePolygon(name, poly, leftD, bottomD);
+}
+
+for (var i = 1; i < scriptArgs.length; i++) {
+    try {
+        processDirectory(scriptArgs[i]);
+    } finally {
+        os.system("rm -rf tmp");
+    }
 }

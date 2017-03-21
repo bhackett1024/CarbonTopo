@@ -509,6 +509,19 @@ var renderTileData = (function() {
             }
         }
 
+        /*
+        // Draw a border around the tile, for use while debugging.
+        renderContext.lineWidth = 5;
+        renderContext.strokeStyle = 'rgb(0,0,0)';
+        renderContext.beginPath();
+        renderContext.moveTo(0,0);
+        renderContext.lineTo(renderedTileWidth, 0);
+        renderContext.lineTo(renderedTileWidth, renderedTileHeight);
+        renderContext.lineTo(0, renderedTileHeight);
+        renderContext.lineTo(0,0);
+        renderContext.stroke();
+        */
+
         resetRenderingState();
 
         worklist[0].callback(renderCanvas.toDataURL());

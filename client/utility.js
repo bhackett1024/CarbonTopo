@@ -187,6 +187,7 @@ function tileFile(directory, leftD, topD, suffix) {
 
 function equals(d0, d1) { return Math.abs(d0 - d1) <= .00000001; }
 function lessThan(d0, d1) { return d0 < d1 && !equals(d0, d1); }
+function lessThanOrEqual(d0, d1) { return d0 < d1 || equals(d0, d1); }
 function rotateX(x, y, angle) { return x * Math.cos(angle) - y * Math.sin(angle); }
 function rotateY(x, y, angle) { return y * Math.cos(angle) + x * Math.sin(angle); }
 
