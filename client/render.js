@@ -88,9 +88,11 @@ var renderTileData = (function() {
     // Position in the various main rendering loops, for resuming work if
     // rendering stops in the middle of a slice.
     var backgroundH, contourH, contourTextH, fillAlphaH, drawAlphaH;
+    var hydrographyDecoder = new Decoder();
 
     function resetRenderingState() {
         backgroundH = contourH = contourTextH = fillAlphaH = drawAlphaH = 0;
+        hydrographyDecoder.reset();
         for (var i = 0; i < textLocations.length; i++)
             textLocationFreelist.push(textLocations[i]);
         textLocations.length = 0;
@@ -342,6 +344,9 @@ var renderTileData = (function() {
 
             renderCanvas.height = renderedTileHeight;
             renderCanvas.width = renderedTileWidth;
+
+            if (tile.hydrographyData)
+                hydrographyDecoder.reset(tile.hydrographyData);
         }
 
         // Fill in the background color for each piece of the grid.
@@ -399,6 +404,40 @@ var renderTileData = (function() {
 
                 contourPoints.length = 0;
             }
+        }
+
+        // Draw hydrography for the tile.
+        while (!hydrographyDecoder.finished()) {
+            var name = hydrographyDecoder.readString();
+            var tag = hydrographyDecoder.readByte();
+
+            switch (tag) {
+              case TAG_POLYGON:
+                var numPoints = hydrographyDecoder.readNumber();
+
+                renderContext.strokeStyle = 'rgb(0,0,255)';
+                renderContext.lineWidth = 2;
+                renderContext.beginPath();
+                var h = hydrographyDecoder.readByte();
+                var w = hydrographyDecoder.readByte();
+                tile.getElevationCoordinate(h, w, coordLL);
+                renderContext.moveTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
+                for (var i = 1; i < numPoints; i++) {
+                    h = hydrographyDecoder.readByte();
+                    w = hydrographyDecoder.readByte();
+                    tile.getElevationCoordinate(h, w, coordLL);
+                    renderContext.lineTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
+                }
+                renderContext.stroke();
+                renderContext.strokeStyle = 'rgb(0,0,0)';
+                break;
+
+              default:
+                throw new Error("Unknown hydrography tag");
+            }
+
+            if (stopRendering())
+                return;
         }
 
         // Draw elevation text at major contour lines on the tile.

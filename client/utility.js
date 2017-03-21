@@ -3,8 +3,9 @@
 
 "use strict";
 
-// All generated tiles are 2.5 minutes on each side.
-var tileD = 2.5 / 60;
+///////////////////////////////////////////////////////////////////////////////
+// Coordinates
+///////////////////////////////////////////////////////////////////////////////
 
 // Coordinate latitude/longitude are in degrees, elevations are in meters.
 function Coordinate(lat, lon, elevation)
@@ -31,6 +32,112 @@ Coordinate.prototype.interpolate = function(first, second, fraction) {
 Coordinate.prototype.toString = function() {
     return "(" + this.lat + "," + this.lon + "," + this.elv + ")";
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// Binary Data
+///////////////////////////////////////////////////////////////////////////////
+
+function Encoder()
+{
+    this.data = [];
+}
+
+Encoder.prototype.toTypedArray = function()
+{
+    return new Uint8Array(this.data);
+}
+
+Encoder.prototype.writeByte = function(byte)
+{
+    this.data.push(byte);
+}
+
+Encoder.prototype.writeTypedArray = function(data)
+{
+    for (var i = 0; i < data.length; i++)
+        this.writeByte(data[i]);
+}
+
+function Decoder(data)
+{
+    this.reset(data);
+}
+
+Decoder.prototype.reset = function(data)
+{
+    assert(!data || data instanceof Uint8Array);
+    this.data = data;
+    this.pos = 0;
+}
+
+Decoder.prototype.readByte = function()
+{
+    return this.data[this.pos++];
+}
+
+Decoder.prototype.finished = function()
+{
+    return !this.data || this.pos == this.data.length;
+}
+
+Encoder.prototype.writeNumber = function(number)
+{
+    assert(number === number | 0);
+
+    while (true) {
+        if (number <= 127 && number >= -127) {
+            this.writeByte(127 + number);
+            break;
+        } else {
+            this.writeByte(0xff);
+            this.writeByte(number & 0xff);
+            number >>= 8;
+        }
+    }
+}
+
+Decoder.prototype.readNumber = function()
+{
+    var number = 0;
+    var shift = 0;
+    while (true) {
+        var byte = this.readByte();
+        if (byte != 0xff) {
+            number |= ((byte - 127) << shift);
+            break;
+        }
+        byte = this.readByte();
+        number |= (byte << shift);
+        shift += 8;
+    }
+    return number;
+}
+
+Encoder.prototype.writeString = function(str)
+{
+    for (var i = 0; i < str.length; i++) {
+        var code = str.charCodeAt(i);
+        assert(code >= 1 && code <= 255);
+        this.writeByte(code);
+    }
+    this.writeByte(0);
+}
+
+Decoder.prototype.readString = function()
+{
+    var str = "";
+    while (true) {
+        var code = this.readByte();
+        if (!code)
+            break;
+        str += String.fromCharCode(code);
+    }
+    return str;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Other Stuff
+///////////////////////////////////////////////////////////////////////////////
 
 function clamp(n, min, max)
 {
@@ -63,6 +170,9 @@ function latlonDistances(latDegrees) {
     return new Coordinate(lat, lon);
 }
 
+// All generated tiles are 2.5 minutes on each side.
+var tileD = 2.5 / 60;
+
 function tileFile(directory, leftD, topD, suffix) {
     var tileD = 2.5 / 60;
     var leftIndex = Math.abs(Math.round(leftD / tileD));
@@ -94,3 +204,6 @@ function logger(str)
     else if (loggerCount == loggerLimit)
         console.log("Logging limit reached...");
 }
+
+// Tags in encoded hydrography data.
+var TAG_POLYGON = 0;

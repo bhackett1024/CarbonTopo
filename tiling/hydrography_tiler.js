@@ -12,9 +12,6 @@ if (scriptArgs.length == 0) {
     quit();
 }
 
-var TAG_POLYGON = 0;
-var writtenPolygonCount = 0;
-
 var destinationDirectory = scriptArgs[0];
 os.system(`mkdir ${destinationDirectory} 2> /dev/null`);
 
@@ -185,18 +182,6 @@ function tileContainsPoint(leftD, bottomD, point)
     return point.lat >= bottomD && point.lat <= topD && point.lon >= leftD && point.lon <= rightD;
 }
 
-function encodeString(data, name)
-{
-    if (name != "(null)") {
-        for (var i = 0; i < name.length; i++) {
-            var code = name.charCodeAt(i);
-            assertEq(code >= 1 && code <= 255, true);
-            data.push(code);
-        }
-    }
-    data.push(0);
-}
-
 function writePolygon(name, poly, leftD, bottomD)
 {
     if (poly.length <= 2)
@@ -209,20 +194,19 @@ function writePolygon(name, poly, leftD, bottomD)
         existingData = os.file.readFile(dstFile);
     } catch (e) {}
 
-    var newData = [];
-    if (existingData) {
-        for (var i = 0; i < existingData.length; i++)
-            newData.push(existingData[i]);
-    }
+    var output = new Encoder();
+    if (existingData)
+        output.writeTypedArray(existingData);
 
-    newData.push(TAG_POLYGON);
-    encodeString(newData, name);
+    output.writeString(name != "(null)" ? name : "");
+    output.writeByte(TAG_POLYGON);
+    output.writeNumber(poly.length);
     for (var i = 0; i < poly.length; i++) {
-        newData.push(poly[i].h);
-        newData.push(poly[i].w);
+        output.writeByte(poly[i].h);
+        output.writeByte(poly[i].w);
     }
 
-    os.file.writeTypedArrayToFile(dstFile, new Uint8Array(newData));
+    os.file.writeTypedArrayToFile(dstFile, output.toTypedArray());
 }
 
 function processPolygonTile(name, points, leftD, bottomD)

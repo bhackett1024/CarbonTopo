@@ -99,6 +99,20 @@ var completedPaths = [];
 // Other Stuff
 ///////////////////////////////////////////////////////////////////////////////
 
+function newTile(tile, elevationBuffer, hydrographyBuffer)
+{
+    computeElevationData(tile, elevationBuffer);
+    tile.hydrographyData = hydrographyBuffer ? new Uint8Array(hydrographyBuffer) : null;
+
+    renderTileData(tile, function(imageUrl) {
+        tile.image = new Image();
+        tile.image.src = imageUrl;
+        tile.image.onload = function() {
+            setNeedUpdateScene();
+        }
+    });
+}
+
 function findTile(coords)
 {
     var leftD = Math.floor(coords.lon / tileD) * tileD;
@@ -131,15 +145,14 @@ function findTile(coords)
         try {
             JSZip.loadAsync(this.response).then(function(zip) {
                 zip.file("elv").async("arraybuffer").then(function(elevationBuffer) {
-                    computeElevationData(tile, elevationBuffer);
-
-                    renderTileData(tile, function(imageUrl) {
-                        tile.image = new Image();
-                        tile.image.src = imageUrl;
-                        tile.image.onload = function() {
-                            setNeedUpdateScene();
-                        }
-                    });
+                    var hydro = zip.file("hyd");
+                    if (hydro) {
+                        hydro.async("arraybuffer").then(function(hydrographyBuffer) {
+                            newTile(tile, elevationBuffer, hydrographyBuffer);
+                        });
+                    } else {
+                        newTile(tile, elevationBuffer, null);
+                    }
                 }, reject);
             }, reject);
         } catch (e) {

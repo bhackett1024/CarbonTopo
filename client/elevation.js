@@ -44,6 +44,9 @@ function Tile(leftD, topD)
     // Elevation for the 256x256 points in the matrix, in row-major order
     // starting at the lower left corner.
     this.elevationData = null;
+
+    // Encoded hydrography information for this tile.
+    this.hydrographyData = null;
 }
 
 Tile.prototype.getElevationData = function(h, w) {
@@ -96,27 +99,14 @@ function elevationIndexFromHeightAndWidth(height, width) {
 
 function computeElevationData(tile, elevationBuffer) {
     var last = 0;
-    var index = 0;
+    var decoder = new Decoder(new Uint8Array(elevationBuffer));
 
     function decode() {
-        var diff = 0;
-        var shift = 0;
-        while (true) {
-            var byte = bufferContents[index++];
-            if (byte != 0xff) {
-                diff |= ((byte - 127) << shift);
-                break;
-            }
-            byte = bufferContents[index++];
-            diff |= (byte << shift);
-            shift += 8;
-        }
-
+        var diff = decoder.readNumber();
         last += diff;
         return last;
     }
 
-    var bufferContents = new Uint8Array(elevationBuffer);
     tile.elevationData = new Uint16Array(256*256);
     tile.elevationTree = new Uint16Array(numQuadrants + 256*256);
 

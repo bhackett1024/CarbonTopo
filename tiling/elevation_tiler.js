@@ -106,25 +106,11 @@ function processDirectory(sourceZip)
         var rightD = leftD + tileD;
         var bottomD = topD - tileD;
 
-        var outputData = [];
+        var output = new Encoder();
         var last = 0;
         function encode(number)
         {
-            assertEq(number, number | 0);
-
-            var diff = number - last;
-
-            while (true) {
-                if (diff <= 127 && diff >= -127) {
-                    outputData.push(127 + diff);
-                    break;
-                } else {
-                    outputData.push(0xff);
-                    outputData.push(diff & 0xff);
-                    diff >>= 8;
-                }
-            }
-
+            output.writeNumber(number - last);
             last = number;
         }
 
@@ -137,6 +123,6 @@ function processDirectory(sourceZip)
             }
         }
 
-        os.file.writeTypedArrayToFile(dstFile, new Uint8Array(outputData));
+        os.file.writeTypedArrayToFile(dstFile, output.toTypedArray());
     }
 }
