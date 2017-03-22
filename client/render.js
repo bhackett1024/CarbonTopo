@@ -17,6 +17,8 @@ var elevationColorFloor = 7000;
 var elevationColorCeiling = 11500;
 var colorFloor = [180,255,180];
 var colorCeiling = [255,0,0];
+var waterStrokeStyle = 'rgb(0,0,180)';
+var waterFillStyle = 'rgb(120,120,255)';
 var textPixelHeight = 14;
 var textFont = 'serif';
 var contourPixelDistanceSame = 400;
@@ -265,27 +267,34 @@ var renderTileData = (function() {
         return true;
     }
 
-    function renderText(cx, cy, angle, text)
+    // Mark a box as unavailable for rendering text. If abortOnConflict is set
+    // then the function returns false and does not perform other actions if
+    // any part of the box has already been marked as unavailable for rendering
+    // text. If clearContourLines is set then any contour lines in the box are
+    // erased.
+    function clearBoxForRendering(cx, cy, width, height, angle,
+                                  abortOnConflict, clearContourLines)
     {
-        var textPixelWidth = renderContext.measureText(text).width;
+        assert(clearedContourPieces.length == 0);
 
         var sin = Math.abs(Math.sin(angle));
         var cos = Math.cos(angle);
-        var startH = pixelToNearestGridHeight(cy + sin * textPixelWidth + cos * textPixelHeight);
-        var endH = pixelToNearestGridHeight(cy - sin * textPixelWidth - cos * textPixelHeight);
-        var startW = pixelToNearestGridWidth(cx - cos * textPixelWidth - sin * textPixelHeight);
-        var endW = pixelToNearestGridWidth(cx + cos * textPixelWidth + sin * textPixelHeight);
+        var startH = pixelToNearestGridHeight(cy + sin * width + cos * height);
+        var endH = pixelToNearestGridHeight(cy - sin * width - cos * height);
+        var startW = pixelToNearestGridWidth(cx - cos * width - sin * height);
+        var endW = pixelToNearestGridWidth(cx + cos * width + sin * height);
         for (var h = startH + 1; h < endH; h++) {
             for (var w = startW + 1; w < endW; w++) {
                 var x = w / 256 * renderedTileWidth;
                 var y = renderedTileHeight - (h / 256 * renderedTileHeight);
-                if (pointIntersectsBox(x - cx, y - cy, textPixelWidth, textPixelHeight, angle)) {
-                    if (!addPendingClearedPiece(h - 1, w - 1) ||
-                        !addPendingClearedPiece(h - 1, w) ||
-                        !addPendingClearedPiece(h, w - 1) ||
-                        !addPendingClearedPiece(h, w))
+                if (pointIntersectsBox(x - cx, y - cy, width, height, angle)) {
+                    if ((!addPendingClearedPiece(h - 1, w - 1) && abortOnConflict) ||
+                        (!addPendingClearedPiece(h - 1, w) && abortOnConflict) ||
+                        (!addPendingClearedPiece(h, w - 1) && abortOnConflict) ||
+                        (!addPendingClearedPiece(h, w) && abortOnConflict))
                     {
-                        return;
+                        clearedContourPieces.length = 0;
+                        return false;
                     }
                 }
             }
@@ -295,10 +304,31 @@ var renderTileData = (function() {
             var index = clearedContourPieces[i];
             var h = gridIndexToHeight(index);
             var w = gridIndexToWidth(index);
-            drawBackground(h, w);
+            if (clearContourLines)
+                drawBackground(h, w);
             contourState[index] = majorContourIndexInUse;
         }
         clearedContourPieces.length = 0;
+        return true;
+    }
+
+    // Clear a box which is represented as endpoints of a line with the given width.
+    function clearLineForRendering(sx, sy, tx, ty, width,
+                                   abortOnConflict, clearContourLines)
+    {
+        var cx = (sx + tx) / 2;
+        var cy = (sy + ty) / 2;
+        var length = Math.sqrt((sx-tx)*(sx-tx), (sy-ty)*(sy-ty));
+        var angle = Math.atan((ty - sy) / (tx - sx));
+        clearBoxForRendering(cx, cy, length, width, angle, abortOnConflict, clearContourLines);
+    }
+
+    function renderText(cx, cy, angle, text)
+    {
+        var textPixelWidth = renderContext.measureText(text).width;
+
+        if (!clearBoxForRendering(cx, cy, textPixelWidth, textPixelHeight, angle, true, true))
+            return;
 
         // Compute rx and ry for drawing the text such that in the rotated
         // canvas the rendered text will be placed with its center at cx/cy.
@@ -411,19 +441,26 @@ var renderTileData = (function() {
 
             var numPoints = hydrographyDecoder.readNumber();
 
-            renderContext.strokeStyle = 'rgb(0,0,180)';
-            renderContext.fillStyle = 'rgb(120,120,255)';
-            renderContext.lineWidth = 5;
+            renderContext.strokeStyle = waterStrokeStyle;
+            renderContext.fillStyle = waterFillStyle;
+            renderContext.lineWidth = (tag == TAG_POLYGON) ? 5 : 3;
             renderContext.beginPath();
             var h = hydrographyDecoder.readByte();
             var w = hydrographyDecoder.readByte();
             tile.getElevationCoordinate(h, w, coordLL);
-            renderContext.moveTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
+            var x = lonPixel(coordLL.lon);
+            var y = latPixel(coordLL.lat);
+            renderContext.moveTo(x, y);
             for (var i = 1; i < numPoints; i++) {
                 h = hydrographyDecoder.readByte();
                 w = hydrographyDecoder.readByte();
                 tile.getElevationCoordinate(h, w, coordLL);
-                renderContext.lineTo(lonPixel(coordLL.lon), latPixel(coordLL.lat));
+                var nx = lonPixel(coordLL.lon);
+                var ny = latPixel(coordLL.lat);
+                clearLineForRendering(x, y, nx, ny, renderContext.lineWidth, false, false);
+                renderContext.lineTo(nx, ny);
+                x = nx;
+                y = ny;
             }
             renderContext.stroke();
             if (tag == TAG_POLYGON)
