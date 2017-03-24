@@ -83,6 +83,7 @@ var renderTileData = (function() {
     var textLocations = [];
     var textLocationFreelist = [];
     var clearedContourPieces = [];
+    var hydrographyX = [], hydrographyY = [];
 
     // Start time of the current rendering slice.
     var renderStartTime = null;
@@ -435,36 +436,48 @@ var renderTileData = (function() {
 
         // Draw hydrography for the tile.
         while (!hydrographyDecoder.finished()) {
-            var name = hydrographyDecoder.readString();
             var tag = hydrographyDecoder.readByte();
-            assert(tag == TAG_POLYGON || tag == TAG_LINE);
+            assert(tag == TAG_WATERBODY ||
+                   tag == TAG_WATERBODY_INTERIOR ||
+                   tag == TAG_WATERBODY_SHORELINE ||
+                   tag == TAG_STREAM);
+            var name = (tag != TAG_WATERBODY_SHORELINE) ? hydrographyDecoder.readString() : null;
 
             var numPoints = hydrographyDecoder.readNumber();
-
-            renderContext.strokeStyle = waterStrokeStyle;
-            renderContext.fillStyle = waterFillStyle;
-            renderContext.lineWidth = (tag == TAG_POLYGON) ? 5 : 3;
-            renderContext.beginPath();
-            var h = hydrographyDecoder.readByte();
-            var w = hydrographyDecoder.readByte();
-            tile.getElevationCoordinate(h, w, coordLL);
-            var x = lonPixel(coordLL.lon);
-            var y = latPixel(coordLL.lat);
-            renderContext.moveTo(x, y);
-            for (var i = 1; i < numPoints; i++) {
-                h = hydrographyDecoder.readByte();
-                w = hydrographyDecoder.readByte();
+            for (var i = 0; i < numPoints; i++) {
+                var h = hydrographyDecoder.readByte();
+                var w = hydrographyDecoder.readByte();
                 tile.getElevationCoordinate(h, w, coordLL);
-                var nx = lonPixel(coordLL.lon);
-                var ny = latPixel(coordLL.lat);
-                clearLineForRendering(x, y, nx, ny, renderContext.lineWidth, false, false);
-                renderContext.lineTo(nx, ny);
-                x = nx;
-                y = ny;
+                hydrographyX.push(lonPixel(coordLL.lon));
+                hydrographyY.push(latPixel(coordLL.lat));
             }
-            renderContext.stroke();
-            if (tag == TAG_POLYGON)
+
+            if (tag == TAG_WATERBODY || tag == TAG_WATERBODY_INTERIOR)
+                renderContext.fillStyle = waterFillStyle;
+
+            if (tag != TAG_WATERBODY_INTERIOR) {
+                renderContext.strokeStyle = waterStrokeStyle;
+                renderContext.lineWidth = 3;
+                for (var i = 0; i < numPoints - 1; i++) {
+                    clearLineForRendering(hydrographyX[i], hydrographyY[i],
+                                          hydrographyX[i + 1], hydrographyY[i + 1],
+                                          renderContext.lineWidth, false, false);
+                }
+            }
+
+            renderContext.beginPath();
+            renderContext.moveTo(hydrographyX[0], hydrographyY[0]);
+            for (var i = 1; i < numPoints; i++)
+                renderContext.lineTo(hydrographyX[i], hydrographyY[i]);
+
+            if (tag == TAG_WATERBODY || tag == TAG_WATERBODY_INTERIOR)
                 renderContext.fill();
+
+            if (tag != TAG_WATERBODY_INTERIOR)
+                renderContext.stroke();
+
+            hydrographyX.length = 0;
+            hydrographyY.length = 0;
 
             if (stopRendering())
                 return;

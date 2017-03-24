@@ -29,6 +29,10 @@ Coordinate.prototype.interpolate = function(first, second, fraction) {
     this.elv = first.elv * fraction + second.elv * (1 - fraction);
 }
 
+Coordinate.displace = function(base, lat, lon) {
+    return new Coordinate(base.lat + lat, base.lon + lon);
+}
+
 Coordinate.prototype.toString = function() {
     return "(" + this.lat + "," + this.lon + "," + this.elv + ")";
 }
@@ -136,8 +140,10 @@ Decoder.prototype.readString = function()
 }
 
 // Tags in encoded hydrography data.
-var TAG_POLYGON = 0;
-var TAG_LINE = 1;
+var TAG_WATERBODY = 0;
+var TAG_WATERBODY_INTERIOR = 1;
+var TAG_WATERBODY_SHORELINE = 2;
+var TAG_STREAM = 3;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Other Stuff

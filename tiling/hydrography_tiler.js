@@ -150,6 +150,7 @@ function insertTileBorderPoints(points)
                 borderFractions.push((lat - nextPoint.lat) / latDiff);
         }
         borderFractions.sort();
+        borderFractions.reverse();
         for (var j = 0; j < borderFractions.length; j++) {
             var newPoint = new Coordinate;
             newPoint.interpolate(point, nextPoint, borderFractions[j]);
@@ -195,7 +196,25 @@ function tileContainsPoint(leftD, bottomD, point)
         && lessThanOrEqual(point.lon, rightD);
 }
 
-function writeFeature(name, points, leftD, bottomD, isPolygon)
+function segmentCrossesLine(segmentStart, segmentEnd, lineStart, lineEnd)
+{
+    // Get new coordinates that are relative to |lineStart|.
+    segmentStart = Coordinate.displace(segmentStart, -lineStart.lat, -lineStart.lon);
+    segmentEnd = Coordinate.displace(segmentEnd, -lineStart.lat, -lineStart.lon);
+    lineEnd = Coordinate.displace(lineEnd, -lineStart.lat, -lineStart.lon);
+
+    var angle = Math.atan(lineEnd.lat / lineEnd.lon);
+
+    var startY = rotateY(segmentStart.lon, segmentStart.lat, -angle);
+    var endY = rotateY(segmentEnd.lon, segmentEnd.lat, -angle);
+
+    return (equals(endY, 0) && !equals(startY, 0)) ||
+           (lessThan(startY, 0) != lessThan(endY, 0));
+}
+
+var loopCount = 0;
+
+function writeFeature(name, points, leftD, bottomD, tag)
 {
     if (points.length <= 1)
         return;
@@ -211,8 +230,9 @@ function writeFeature(name, points, leftD, bottomD, isPolygon)
     if (existingData)
         output.writeTypedArray(existingData);
 
-    output.writeString(name != "(null)" ? name : "");
-    output.writeByte(isPolygon ? TAG_POLYGON : TAG_LINE);
+    output.writeByte(tag);
+    if (tag != TAG_WATERBODY_SHORELINE)
+        output.writeString(name != "(null)" ? name : "");
     output.writeNumber(points.length);
     for (var i = 0; i < points.length; i++) {
         output.writeByte(points[i].h);
@@ -222,33 +242,99 @@ function writeFeature(name, points, leftD, bottomD, isPolygon)
     os.file.writeTypedArrayToFile(dstFile, output.toTypedArray());
 }
 
-function processFeatureTile(name, points, leftD, bottomD, isPolygon)
+function getTilePoint(leftD, bottomD, point)
 {
-    var firstOutsidePoint = -1;
-    for (var i = 0; i < points.length; i++) {
-        if (!tileContainsPoint(leftD, bottomD, points[i])) {
-            firstOutsidePoint = i;
-            break;
+    var h = Math.round((point.lat - bottomD) / tileD * 255);
+    var w = Math.round((point.lon - leftD) / tileD * 255);
+    return { h:h, w:w };
+}
+
+function processFeatureTile(name, allPoints, leftD, bottomD, isPolygon)
+{
+    // Partition the points into series of points which are both either inside
+    // or outside the tile.
+    var series = [];
+    for (var i = 0; i < allPoints.length; i++) {
+        var point = allPoints[i];
+        var lastSeries = series.length ? series[series.length - 1] : null;
+        var isInside = tileContainsPoint(leftD, bottomD, allPoints[i]);
+        if (lastSeries && isInside == lastSeries.isInside) {
+            lastSeries.points.push(point);
+        } else {
+            lastSeries = { points: [point], isInside: isInside };
+            series.push(lastSeries);
         }
     }
 
-    var startPoint = firstOutsidePoint != -1 ? firstOutsidePoint : 0;
-    var i = startPoint;
-    var tilePoints = [];
-    do {
-        var point = points[i];
-        if (tileContainsPoint(leftD, bottomD, point)) {
-            var h = Math.round((point.lat - bottomD) / tileD * 255);
-            var w = Math.round((point.lon - leftD) / tileD * 255);
-            tilePoints.push({h:h,w:w});
-        } else {
-            writeFeature(name, tilePoints, leftD, bottomD, isPolygon);
-            tilePoints = [];
+    if (series.length == 1) {
+        if (!series[0].isInside)
+            return;
+    } else {
+        // Normalize point series so that the first series is inside the tile and
+        // the last is outside it.
+        if (series[0].isInside == series[series.length - 1].isInside) {
+            series[0].points = series[series.length - 1].points.concat(series[0].points);
+            series.pop();
         }
-        i = i = (i + 1) % points.length;
-    } while (i != startPoint);
+        if (!series[0].isInside)
+            series.push(series.shift());
+    }
 
-    writeFeature(name, tilePoints, leftD, bottomD, isPolygon);
+    var tag;
+    if (isPolygon) {
+        if (series.length == 1) {
+            tag = TAG_WATERBODY;
+        } else {
+            assert(series.length % 2 == 0);
+            var tilePoints = [];
+            for (var i = 0; i < series.length; i+= 2) {
+                assert(series[i].isInside);
+                var points = series[i].points;
+                for (var j = 0; j < points.length; j++)
+                    tilePoints.push(getTilePoint(leftD, bottomD, points[j]));
+
+                // Insert additional points to travel around the border of the
+                // tile to the start of the next interior series. We assume
+                // that points in the polygon travel around it clockwise.
+                var lastInteriorPoint = points[points.length - 1];
+                var nextInteriorPoint = series[(i == series.length - 2) ? 0 : i + 2].points[0];
+
+                var rightD = leftD + tileD;
+                var topD = bottomD + tileD;
+
+                var nextLon = nextInteriorPoint.lon;
+                var nextLat = nextInteriorPoint.lat;
+                var lon = lastInteriorPoint.lon;
+                var lat = lastInteriorPoint.lat;
+                while (!equals(lon, nextLon) || !equals(lat, nextLat)) {
+                    if (equals(lon, leftD) && !equals(lat, topD))
+                        lat = (equals(nextLon, lon) && lessThan(lat, nextLat)) ? nextLat : topD;
+                    else if (equals(lat, topD) && !equals(lon, rightD))
+                        lon = (equals(nextLat, lat) && lessThan(lon, nextLon)) ? nextLon : rightD;
+                    else if (equals(lon, rightD) && !equals(lat, bottomD))
+                        lat = (equals(nextLon, lon) && lessThan(nextLat, lat)) ? nextLat : bottomD;
+                    else if (equals(lat, bottomD) && !equals(lon, leftD))
+                        lon = (equals(nextLat, lat) && lessThan(nextLon, lon)) ? nextLon : leftD;
+                    else
+                        assert(false);
+                    tilePoints.push(getTilePoint(leftD, bottomD, new Coordinate(lat, lon)));
+                }
+            }
+            writeFeature(name, tilePoints, leftD, bottomD, TAG_WATERBODY_INTERIOR);
+            tag = TAG_WATERBODY_SHORELINE;
+        }
+    } else {
+        tag = TAG_STREAM;
+    }
+
+    for (var i = 0; i < series.length; i += 2) {
+        assert(series[i].isInside);
+        var points = series[i].points;
+        var tilePoints = [];
+        for (var j = 0; j < points.length; j++)
+            tilePoints.push(getTilePoint(leftD, bottomD, points[j]));
+        writeFeature(name, tilePoints, leftD, bottomD, tag);
+    }
 }
 
 for (var i = 1; i < scriptArgs.length; i++) {
