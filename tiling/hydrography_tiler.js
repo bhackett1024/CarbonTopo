@@ -159,9 +159,34 @@ function insertTileBorderPoints(points)
     }
 }
 
+var crossTileLabelDistance = tileD * 2;
+
+function getFeatureBoundingBoxSize(tile)
+{
+    if (!tile.features.length)
+        return 0;
+    var hMin = 255, hMax = 0, wMin = 255, wMax = 0;
+    for (var i = 0; i < tile.features.length; i++) {
+        var feature = tile.features[i];
+        for (var j = 0; j < feature.tilePoints.length; j++) {
+            var point = feature.tilePoints[j];
+            hMin = Math.min(hMin, point.h);
+            hMax = Math.max(hMax, point.h);
+            wMin = Math.min(wMin, point.w);
+            wMax = Math.max(wMax, point.w);
+        }
+    }
+    var hDiff = hMax - hMin;
+    var wDiff = wMax - wMin;
+    return hDiff * hDiff + wDiff * wDiff;
+}
+
 function processFeature(name, points, isPolygon)
 {
     print("Processing feature \"" + name + "\"");
+
+    if (name == "(null)")
+        name = null;
 
     if (isPolygon && ("" + points[0] != "" + points[points.length - 1]))
         points.push(points[0]);
@@ -179,10 +204,36 @@ function processFeature(name, points, isPolygon)
         bottomD = Math.min(bottomD, points[i].lat);
     }
 
-    var what = 0;
+    var tiles = [];
     for (var lon = getTileLeftD(leftD); lon < rightD; lon += tileD) {
-        for (var lat = getTileBottomD(bottomD); lat < topD; lat += tileD)
-            processFeatureTile(name, points, lon, lat, isPolygon);
+        for (var lat = getTileBottomD(bottomD); lat < topD; lat += tileD) {
+            var tile = { leftD: lon, bottomD: lat, features: [] };
+            processFeatureTile(points, isPolygon, tile);
+            tile.boundingBoxSize = getFeatureBoundingBoxSize(tile);
+            tiles.push(tile);
+        }
+    }
+
+    tiles.sort((first, second) => first.boundingBoxSize > second.boundingBoxSize);
+
+    for (var i = 0; i < tiles.length; i++) {
+        var tile = tiles[i];
+        var hasName = true;
+        for (var j = 0; j < i; j++) {
+            var other = tiles[j];
+            if (other.hasName) {
+                var distance = Math.abs(tile.leftD - other.leftD) + Math.abs(tile.bottomD - other.bottomD);
+                if (distance <= crossTileLabelDistance) {
+                    hasName = false;
+                    break;
+                }
+            }
+        }
+        tile.hasName = hasName;
+        for (var j = 0; j < tile.features.length; j++) {
+            writeFeature(hasName ? name : null, tile.features[j].tilePoints,
+                         tile.leftD, tile.bottomD, tile.features[j].tag);
+        }
     }
 }
 
@@ -212,8 +263,6 @@ function segmentCrossesLine(segmentStart, segmentEnd, lineStart, lineEnd)
            (lessThan(startY, 0) != lessThan(endY, 0));
 }
 
-var loopCount = 0;
-
 function writeFeature(name, points, leftD, bottomD, tag)
 {
     if (points.length <= 1)
@@ -232,7 +281,7 @@ function writeFeature(name, points, leftD, bottomD, tag)
 
     output.writeByte(tag);
     if (tag != TAG_WATERBODY_SHORELINE)
-        output.writeString(name != "(null)" ? name : "");
+        output.writeString(name ? name : "");
     output.writeNumber(points.length);
     for (var i = 0; i < points.length; i++) {
         output.writeByte(points[i].h);
@@ -249,8 +298,11 @@ function getTilePoint(leftD, bottomD, point)
     return { h:h, w:w };
 }
 
-function processFeatureTile(name, allPoints, leftD, bottomD, isPolygon)
+function processFeatureTile(allPoints, isPolygon, tile)
 {
+    var leftD = tile.leftD;
+    var bottomD = tile.bottomD;
+
     // Partition the points into series of points which are both either inside
     // or outside the tile.
     var series = [];
@@ -320,7 +372,7 @@ function processFeatureTile(name, allPoints, leftD, bottomD, isPolygon)
                     tilePoints.push(getTilePoint(leftD, bottomD, new Coordinate(lat, lon)));
                 }
             }
-            writeFeature(name, tilePoints, leftD, bottomD, TAG_WATERBODY_INTERIOR);
+            tile.features.push({ tilePoints: tilePoints, tag: TAG_WATERBODY_INTERIOR });
             tag = TAG_WATERBODY_SHORELINE;
         }
     } else {
@@ -333,7 +385,7 @@ function processFeatureTile(name, allPoints, leftD, bottomD, isPolygon)
         var tilePoints = [];
         for (var j = 0; j < points.length; j++)
             tilePoints.push(getTilePoint(leftD, bottomD, points[j]));
-        writeFeature(name, tilePoints, leftD, bottomD, tag);
+        tile.features.push({ tilePoints: tilePoints, tag: tag });
     }
 }
 

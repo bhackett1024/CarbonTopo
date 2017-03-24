@@ -343,6 +343,28 @@ var renderTileData = (function() {
         addTextLocation(cx, cy, text);
     }
 
+    function renderHydrographyText(tag, text)
+    {
+        var xTotal = 0, yTotal = 0;
+        for (var i = 0; i < hydrographyX.length; i++) {
+            xTotal += hydrographyX[i];
+            yTotal += hydrographyY[i];
+        }
+        var x = Math.round(xTotal / hydrographyX.length);
+        var y = Math.round(yTotal / hydrographyY.length);
+
+        var textPixelWidth = renderContext.measureText(text).width;
+
+        var angle = 0;
+        var rx = rotateX(x, y, -angle) - textPixelWidth / 2;
+        var ry = rotateY(x, y, -angle) + textPixelHeight / 2;
+        renderContext.rotate(angle);
+        renderContext.lineWidth = 1;
+        renderContext.strokeStyle = 'rgb(0,0,0)';
+        renderContext.strokeText(text, rx, ry);
+        renderContext.rotate(-angle);
+    }
+
     function stopRendering() {
         // Lazily fill in the start time here. This is a convoluted way of
         // ensuring we always render at least one row in renderTileWorklist.
@@ -441,7 +463,7 @@ var renderTileData = (function() {
                    tag == TAG_WATERBODY_INTERIOR ||
                    tag == TAG_WATERBODY_SHORELINE ||
                    tag == TAG_STREAM);
-            var name = (tag != TAG_WATERBODY_SHORELINE) ? hydrographyDecoder.readString() : null;
+            var name = (tag != TAG_WATERBODY_SHORELINE) ? hydrographyDecoder.readString() : "";
 
             var numPoints = hydrographyDecoder.readNumber();
             for (var i = 0; i < numPoints; i++) {
@@ -475,6 +497,9 @@ var renderTileData = (function() {
 
             if (tag != TAG_WATERBODY_INTERIOR)
                 renderContext.stroke();
+
+            if (name.length)
+                renderHydrographyText(tag, name);
 
             hydrographyX.length = 0;
             hydrographyY.length = 0;
