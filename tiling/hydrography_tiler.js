@@ -15,6 +15,28 @@ if (scriptArgs.length == 0) {
 var destinationDirectory = scriptArgs[0];
 os.system(`mkdir ${destinationDirectory} 2> /dev/null`);
 
+var allFeatures = [];
+var namedPolygonFeatures = {};
+var namedLineFeatures = {};
+
+function addPendingFeature(name, points, isPolygon)
+{
+    var feature;
+    var namedMap;
+    if (name) {
+        namedMap = isPolygon ? namedPolygonFeatures : namedLineFeatures;
+        if (name in namedMap)
+            feature = namedMap[name];
+    }
+    if (!feature) {
+        feature = { name: name, pointLists: [], isPolygon: isPolygon };
+        if (namedMap)
+            namedMap[name] = feature;
+        allFeatures.push(feature);
+    }
+    feature.pointLists.push(points);
+}
+
 function processDirectory(sourceZip)
 {
     print("Processing Zip " + sourceZip);
@@ -38,7 +60,6 @@ function handleShapeFile(shapeFile)
 
 function handleFeature(name)
 {
-    assert(name);
     return true;
 }
 
@@ -90,8 +111,11 @@ function processShapeFile(shapeFile)
         if (/OGRFeature/.test(lines[line]))
             currentName = null;
 
-        if (arr = /^  GNIS_NAME \(String\) = (.*)/.exec(lines[line]))
+        if (arr = /^  GNIS_NAME \(String\) = (.*)/.exec(lines[line])) {
             currentName = arr[1];
+            if (currentName == "(null)")
+                currentName = null;
+        }
 
         if (arr = /POLYGON \(\((.*?)\)\)/.exec(lines[line])) {
             if (!handleFeature(currentName))
@@ -99,7 +123,7 @@ function processShapeFile(shapeFile)
             var polyList = arr[1].split("),(");
             for (var i = 0; i < polyList.length; i++) {
                 var points = parsePointList(polyList[i]);
-                processFeature(currentName, points, true);
+                addPendingFeature(currentName, points, true);
             }
         }
 
@@ -107,7 +131,7 @@ function processShapeFile(shapeFile)
             if (!handleFeature(currentName))
                 continue;
             var points = parsePointList(arr[1]);
-            processFeature(currentName, points, false);
+            addPendingFeature(currentName, points, false);
         }
     }
 }
@@ -181,46 +205,58 @@ function getFeatureBoundingBoxSize(tile)
     return hDiff * hDiff + wDiff * wDiff;
 }
 
-function processFeature(name, points, isPolygon)
+function processFeature(name, pointLists, isPolygon)
 {
     print("Processing feature \"" + name + "\"");
 
-    if (name == "(null)")
-        name = null;
-
-    if (isPolygon && ("" + points[0] != "" + points[points.length - 1]))
-        points.push(points[0]);
-
-    insertTileBorderPoints(points);
-
-    // Find a bounding box for the entire feature.
-    var leftD, topD, bottomD, rightD;
-    leftD = rightD = points[0].lon;
-    topD = bottomD = points[0].lat;
-    for (var i = 1; i < points.length; i++) {
-        leftD = Math.min(leftD, points[i].lon);
-        rightD = Math.max(rightD, points[i].lon);
-        topD = Math.max(topD, points[i].lat);
-        bottomD = Math.min(bottomD, points[i].lat);
+    for (var i = 0; i < pointLists.length; i++) {
+        var points = pointLists[i];
+        if (isPolygon && ("" + points[0] != "" + points[points.length - 1]))
+            points.push(points[0]);
+        insertTileBorderPoints(points);
     }
 
-    var tiles = [];
-    for (var lon = getTileLeftD(leftD); lon < rightD; lon += tileD) {
-        for (var lat = getTileBottomD(bottomD); lat < topD; lat += tileD) {
-            var tile = { leftD: lon, bottomD: lat, features: [] };
-            processFeatureTile(points, isPolygon, tile);
-            tile.boundingBoxSize = getFeatureBoundingBoxSize(tile);
-            tiles.push(tile);
+    var allTiles = [];
+    var tileIndex = {};
+    for (var i = 0; i < pointLists.length; i++) {
+        var points = pointLists[i];
+
+        // Find a bounding box for this list of points.
+        var leftD, topD, bottomD, rightD;
+        leftD = rightD = points[0].lon;
+        topD = bottomD = points[0].lat;
+        for (var j = 1; j < points.length; j++) {
+            leftD = Math.min(leftD, points[j].lon);
+            rightD = Math.max(rightD, points[j].lon);
+            topD = Math.max(topD, points[j].lat);
+            bottomD = Math.min(bottomD, points[j].lat);
+        }
+
+        for (var lon = getTileLeftD(leftD); lon < rightD; lon += tileD) {
+            for (var lat = getTileBottomD(bottomD); lat < topD; lat += tileD) {
+                var key = lon + "::" + lat;
+                var tile;
+                if (key in tileIndex) {
+                    tile = tileIndex[key];
+                } else {
+                    tile = tileIndex[key] = { leftD: lon, bottomD: lat, features: [] };
+                    allTiles.push(tile);
+                }
+                processFeatureTile(points, isPolygon, tile);
+            }
         }
     }
 
-    tiles.sort((first, second) => first.boundingBoxSize > second.boundingBoxSize);
+    for (var i = 0; i < allTiles.length; i++)
+        allTiles[i].boundingBoxSize = getFeatureBoundingBoxSize(allTiles[i]);
 
-    for (var i = 0; i < tiles.length; i++) {
-        var tile = tiles[i];
+    allTiles.sort((first, second) => first.boundingBoxSize > second.boundingBoxSize);
+
+    for (var i = 0; i < allTiles.length; i++) {
+        var tile = allTiles[i];
         var hasName = true;
         for (var j = 0; j < i; j++) {
-            var other = tiles[j];
+            var other = allTiles[j];
             if (other.hasName) {
                 var distance = Math.abs(tile.leftD - other.leftD) + Math.abs(tile.bottomD - other.bottomD);
                 if (distance <= crossTileLabelDistance) {
@@ -395,4 +431,9 @@ for (var i = 1; i < scriptArgs.length; i++) {
     } finally {
         os.system("rm -rf tmp");
     }
+}
+
+for (var i = 0; i < allFeatures.length; i++) {
+    var feature = allFeatures[i];
+    processFeature(feature.name, feature.pointLists, feature.isPolygon);
 }
