@@ -19,7 +19,7 @@ var colorFloor = [180,255,180];
 var colorCeiling = [255,0,0];
 var waterStrokeStyle = 'rgb(0,0,180)';
 var waterFillStyle = 'rgb(120,120,255)';
-var textPixelHeight = 14;
+var contourTextPixelHeight = 14;
 var textFont = 'serif';
 var contourPixelDistanceSame = 400;
 var contourPixelDistanceDifferent = 200;
@@ -82,7 +82,6 @@ var renderTileData = (function() {
     var contourState = new Uint8Array(255 * 255);
     var textLocations = [];
     var textLocationFreelist = [];
-    var clearedContourPieces = [];
     var hydrographyX = [], hydrographyY = [];
 
     // Start time of the current rendering slice.
@@ -189,7 +188,7 @@ var renderTileData = (function() {
         textLocations.push(location);
     }
 
-    function mayDrawText(x, y, text)
+    function mayDrawContourText(x, y, text)
     {
         if (x <= contourPixelDistanceBorder ||
             y <= contourPixelDistanceBorder ||
@@ -212,31 +211,6 @@ var renderTileData = (function() {
         return true;
     }
 
-    function majorIndexMatches(h, w, index)
-    {
-        return clamp(h, 0, 255) == h && clamp(w, 0, 255) == w && contourState[gridIndex(h, w)] == index;
-    }
-
-    function computeMajorContourTextAngle(index, h, w)
-    {
-        const radius = 3;
-        for (var offset = -radius; offset <= radius; offset++) {
-            if (majorIndexMatches(h - radius, w + offset, index)) {
-                for (var miniOffset = -1; miniOffset <= 1; miniOffset++) {
-                    if (majorIndexMatches(h + radius, w - offset + miniOffset, index))
-                        return Math.atan(radius / (offset - miniOffset / 2));
-                }
-            }
-            if (majorIndexMatches(h + offset, w - radius, index)) {
-                for (var miniOffset = -1; miniOffset <= 1; miniOffset++) {
-                    if (majorIndexMatches(h - offset + miniOffset, w + radius, index))
-                        return Math.atan((offset - miniOffset / 2) / radius);
-                }
-            }
-        }
-        return undefined;
-    }
-
     function pixelToNearestGridHeight(p)
     {
         return 256 - Math.round(p / renderedTileHeight * 256);
@@ -247,6 +221,16 @@ var renderTileData = (function() {
         return Math.round(p / renderedTileWidth * 256);
     }
 
+    function addGridPiece(pieces, h, w)
+    {
+        var index = gridIndex(h, w);
+        for (var i = 0; i < pieces.length; i++) {
+            if (pieces[i] == index)
+                return;
+        }
+        pieces.push(index);
+    }
+
     // Return whether a box centered at the origin with the specified width,
     // height, and rotation angle contains x/y.
     function pointIntersectsBox(x, y, width, height, angle)
@@ -255,29 +239,8 @@ var renderTileData = (function() {
                Math.abs(rotateY(x, y, -angle)) <= height / 2;
     }
 
-    function addPendingClearedPiece(h, w)
+    function addGridPiecesInBox(pieces, cx, cy, width, height, angle)
     {
-        var index = gridIndex(h, w);
-        if (contourState[index] == majorContourIndexInUse)
-            return false;
-        for (var i = 0; i < clearedContourPieces.length; i++) {
-            if (clearedContourPieces[i] == index)
-                return true;
-        }
-        clearedContourPieces.push(index);
-        return true;
-    }
-
-    // Mark a box as unavailable for rendering text. If abortOnConflict is set
-    // then the function returns false and does not perform other actions if
-    // any part of the box has already been marked as unavailable for rendering
-    // text. If clearContourLines is set then any contour lines in the box are
-    // erased.
-    function clearBoxForRendering(cx, cy, width, height, angle,
-                                  abortOnConflict, clearContourLines)
-    {
-        assert(clearedContourPieces.length == 0);
-
         var sin = Math.abs(Math.sin(angle));
         var cos = Math.cos(angle);
         var startH = pixelToNearestGridHeight(cy + sin * width + cos * height);
@@ -289,59 +252,143 @@ var renderTileData = (function() {
                 var x = w / 256 * renderedTileWidth;
                 var y = renderedTileHeight - (h / 256 * renderedTileHeight);
                 if (pointIntersectsBox(x - cx, y - cy, width, height, angle)) {
-                    if ((!addPendingClearedPiece(h - 1, w - 1) && abortOnConflict) ||
-                        (!addPendingClearedPiece(h - 1, w) && abortOnConflict) ||
-                        (!addPendingClearedPiece(h, w - 1) && abortOnConflict) ||
-                        (!addPendingClearedPiece(h, w) && abortOnConflict))
-                    {
-                        clearedContourPieces.length = 0;
-                        return false;
-                    }
+                    addGridPiece(pieces, h - 1, w - 1);
+                    addGridPiece(pieces, h - 1, w);
+                    addGridPiece(pieces, h, w - 1);
+                    addGridPiece(pieces, h, w);
                 }
             }
         }
-
-        for (var i = 0; i < clearedContourPieces.length; i++) {
-            var index = clearedContourPieces[i];
-            var h = gridIndexToHeight(index);
-            var w = gridIndexToWidth(index);
-            if (clearContourLines)
-                drawBackground(h, w);
-            contourState[index] = majorContourIndexInUse;
-        }
-        clearedContourPieces.length = 0;
-        return true;
     }
 
-    // Clear a box which is represented as endpoints of a line with the given width.
-    function clearLineForRendering(sx, sy, tx, ty, width,
-                                   abortOnConflict, clearContourLines)
+    function addGridPiecesInLine(pieces, sx, sy, tx, ty, width)
     {
         var cx = (sx + tx) / 2;
         var cy = (sy + ty) / 2;
         var length = Math.sqrt((sx-tx)*(sx-tx), (sy-ty)*(sy-ty));
         var angle = Math.atan((ty - sy) / (tx - sx));
-        clearBoxForRendering(cx, cy, length, width, angle, abortOnConflict, clearContourLines);
+        addGridPiecesInBox(pieces, cx, cy, length, width, angle);
     }
 
-    function renderText(cx, cy, angle, text)
+    function textRenderSearchScore(cx, cy, angle, pixelWidth, pixelHeight, search)
     {
-        var textPixelWidth = renderContext.measureText(text).width;
+        var maxAngle = Math.PI / 2;
+        var minAngle = -maxAngle;
 
-        if (!clearBoxForRendering(cx, cy, textPixelWidth, textPixelHeight, angle, true, true))
-            return;
+        var pieces = [];
+        addGridPiecesInBox(pieces, cx, cy, pixelWidth, pixelHeight, angle);
+
+        var left = cx - pixelWidth / 2, right = cx + pixelWidth / 2;
+        var bottom = cy - pixelWidth / 2, top = cy + pixelWidth / 2;
+        var disqualifyCount = Math.max(-left, 0)
+                            + Math.max(right - renderedTileWidth, 0)
+                            + Math.max(-bottom, 0)
+                            + Math.max(top - renderedTileHeight, 0)
+                            + ((angle > maxAngle) ? (angle - maxAngle) * 10 : 0)
+                            + ((angle < minAngle) ? (minAngle - angle) * 10 : 0);
+        for (var i = 0; i < pieces.length; i++) {
+            if (contourState[pieces[i]] == majorContourIndexInUse)
+                disqualifyCount++;
+        }
+        if (disqualifyCount) {
+            assert(disqualifyCount > 0);
+            return -disqualifyCount;
+        }
+
+        var score = 0;
+        for (var i = 0; i < pieces.length; i++)
+            score += search.searchScore(pieces[i]);
+        return score;
+    }
+
+    function textRenderSearchNeighbors(cx, cy, angle)
+    {
+        var pixelDelta = 3;
+        var angleDelta = Math.PI / 6;
+        return [{ cx: cx - pixelDelta, cy: cy, angle: angle },
+                { cx: cx + pixelDelta, cy: cy, angle: angle },
+                { cx: cx, cy: cy - pixelDelta, angle: angle },
+                { cx: cx, cy: cy + pixelDelta, angle: angle },
+                { cx: cx, cy: cy, angle: angle - angleDelta },
+                { cx: cx, cy: cy, angle: angle + angleDelta }];
+    }
+
+    function tryRenderText(cx, cy, angle, text, pixelHeight, search)
+    {
+        var pixelWidth = renderContext.measureText(text).width;
+        var score = textRenderSearchScore(cx, cy, angle, pixelWidth, pixelHeight, search);
+
+        var seen = [];
+        for (var i = 0; i < search.limit; i++) {
+            var neighbors = textRenderSearchNeighbors(cx, cy, angle);
+            var bestcx = cx, bestcy = cy, bestAngle = angle, bestScore = score;
+            for (var j = 0; j < neighbors.length; j++) {
+                var neighbor = neighbors[j];
+                var found = false;
+                for (var k = 0; k < seen.length; k++) {
+                    var item = seen[k];
+                    if (neighbor.cx == item.cx && neighbor.cy == item.cy && neighbor.angle == item.angle) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    seen.push(neighbor);
+                    var neighborScore = textRenderSearchScore(neighbor.cx, neighbor.cy, neighbor.angle,
+                                                              pixelWidth, pixelHeight, search);
+                    if (neighborScore > bestScore) {
+                        bestcx = neighbor.cx;
+                        bestcy = neighbor.cy;
+                        bestAngle = neighbor.angle;
+                        bestScore = neighborScore;
+                    }
+                }
+            }
+            if (bestScore > score) {
+                cx = bestcx;
+                cy = bestcy;
+                angle = bestAngle;
+                score = bestScore;
+            } else {
+                // We found a local maximum.
+                break;
+            }
+        }
+
+        if (score < 0)
+            return false;
+
+        var pieces = [];
+        addGridPiecesInBox(pieces, cx, cy, pixelWidth, pixelHeight, angle);
+        for (var i = 0; i < pieces.length; i++) {
+            var index = pieces[i];
+            var h = gridIndexToHeight(index);
+            var w = gridIndexToWidth(index);
+            drawBackground(h, w);
+            contourState[index] = majorContourIndexInUse;
+        }
 
         // Compute rx and ry for drawing the text such that in the rotated
         // canvas the rendered text will be placed with its center at cx/cy.
-        var rx = rotateX(cx, cy, -angle) - textPixelWidth / 2;
-        var ry = rotateY(cx, cy, -angle) + textPixelHeight / 2;
+        var rx = rotateX(cx, cy, -angle) - pixelWidth / 2;
+        var ry = rotateY(cx, cy, -angle) + pixelHeight / 2;
         renderContext.rotate(angle);
         renderContext.lineWidth = 1;
         renderContext.strokeStyle = 'rgb(0,0,0)';
         renderContext.strokeText(text, rx, ry);
         renderContext.rotate(-angle);
         addTextLocation(cx, cy, text);
+
+        return true;
     }
+
+    var contourTextSearch = {
+        limit: 50,
+        majorContourIndex: majorContourIndexNone,
+        searchScore: function(index) {
+            return contourState[index] == contourTextSearch.majorContourIndex ? 1 : 0;
+        }
+    };
 
     function renderHydrographyText(tag, text)
     {
@@ -357,7 +404,7 @@ var renderTileData = (function() {
 
         var angle = 0;
         var rx = rotateX(x, y, -angle) - textPixelWidth / 2;
-        var ry = rotateY(x, y, -angle) + textPixelHeight / 2;
+        var ry = rotateY(x, y, -angle) + contourTextPixelHeight / 2;
         renderContext.rotate(angle);
         renderContext.lineWidth = 1;
         renderContext.strokeStyle = 'rgb(0,0,0)';
@@ -480,10 +527,14 @@ var renderTileData = (function() {
             if (tag != TAG_WATERBODY_INTERIOR) {
                 renderContext.strokeStyle = waterStrokeStyle;
                 renderContext.lineWidth = 3;
+                var pieces = [];
                 for (var i = 0; i < numPoints - 1; i++) {
-                    clearLineForRendering(hydrographyX[i], hydrographyY[i],
-                                          hydrographyX[i + 1], hydrographyY[i + 1],
-                                          renderContext.lineWidth, false, false);
+                    addGridPiecesInLine(pieces, hydrographyX[i], hydrographyY[i],
+                                        hydrographyX[i + 1], hydrographyY[i + 1],
+                                        renderContext.lineWidth);
+                    for (var j = 0; j < pieces.length; j++)
+                        contourState[pieces[j]] = majorContourIndexInUse;
+                    pieces.length = 0;
                 }
             }
 
@@ -509,7 +560,7 @@ var renderTileData = (function() {
         }
 
         // Draw elevation text at major contour lines on the tile.
-        renderContext.font = textPixelHeight + 'px ' + textFont;
+        renderContext.font = contourTextPixelHeight + 'px ' + textFont;
         renderContext.textBaseline = 'bottom';
         for (; contourTextH < 255; contourTextH++) {
             if (stopRendering())
@@ -522,12 +573,11 @@ var renderTileData = (function() {
                 var cx = lonPixel(coordLL.lon + tileD / 512);
                 var cy = latPixel(coordLL.lat + tileD / 512);
                 var text = majorContourIndexText(majorIndex);
-                if (!mayDrawText(cx, cy, text))
+                if (!mayDrawContourText(cx, cy, text))
                     continue;
-                var angle = computeMajorContourTextAngle(majorIndex, contourTextH, contourTextW);
-                if (angle == undefined)
-                    continue;
-                renderText(cx, cy, angle, text);
+
+                contourTextSearch.majorContourIndex = majorIndex;
+                tryRenderText(cx, cy, 0, text, contourTextPixelHeight, contourTextSearch);
             }
         }
 
