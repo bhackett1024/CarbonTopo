@@ -450,7 +450,22 @@ var renderTileData = (function() {
         var y = Math.round(yTotal / data.eachY.length);
 
         hydrographyTextSearch.data = data;
-        if (!tryRenderText(x, y, 0, data.name, hydrographyTextPixelHeight, hydrographyTextSearch)) {
+
+        var found = false;
+        for (var radius = 0; !found && radius < 80; radius += 10) {
+            var numDirections = radius ? (4 * (radius / 10)) : 1;
+            for (var directionIndex = 0; directionIndex < numDirections; directionIndex++) {
+                var direction = directionIndex / numDirections * Math.PI * 2;
+                var nx = x + radius * Math.cos(direction);
+                var ny = y + radius * Math.sin(direction);
+                if (tryRenderText(nx, ny, 0, data.name, hydrographyTextPixelHeight, hydrographyTextSearch)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (!found) {
             renderContext.lineWidth = 1;
             renderContext.fillStyle = 'rgb(0,0,0)';
             renderContext.fillText("FAILURE", x, y);
