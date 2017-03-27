@@ -20,7 +20,9 @@ var colorCeiling = [255,0,0];
 var waterStrokeStyle = 'rgb(0,0,180)';
 var waterFillStyle = 'rgb(120,120,255)';
 var contourTextPixelHeight = 14;
-var textFont = 'serif';
+var contourTextFont = 'serif';
+var hydrographyTextPixelHeight = 18;
+var hydrographyTextFont = 'serif';
 var contourPixelDistanceSame = 400;
 var contourPixelDistanceDifferent = 200;
 var contourPixelDistanceBorder = 100;
@@ -265,9 +267,9 @@ var renderTileData = (function() {
     {
         var cx = (sx + tx) / 2;
         var cy = (sy + ty) / 2;
-        var length = Math.sqrt((sx-tx)*(sx-tx), (sy-ty)*(sy-ty));
+        var length = Math.sqrt((sx-tx)*(sx-tx) + (sy-ty)*(sy-ty));
         var angle = Math.atan((ty - sy) / (tx - sx));
-        addGridPiecesInBox(pieces, cx, cy, length, width, angle);
+        addGridPiecesInBox(pieces, cx, cy, length + 6, width + 6, angle, true);
     }
 
     function textRenderSearchScore(cx, cy, angle, pixelWidth, pixelHeight, search)
@@ -278,21 +280,15 @@ var renderTileData = (function() {
         var pieces = [];
         addGridPiecesInBox(pieces, cx, cy, pixelWidth, pixelHeight, angle);
 
-        var left = cx - pixelWidth / 2, right = cx + pixelWidth / 2;
-        var bottom = cy - pixelWidth / 2, top = cy + pixelWidth / 2;
-        var disqualifyCount = Math.max(-left, 0)
-                            + Math.max(right - renderedTileWidth, 0)
-                            + Math.max(-bottom, 0)
-                            + Math.max(top - renderedTileHeight, 0)
-                            + ((angle > maxAngle) ? (angle - maxAngle) * 10 : 0)
-                            + ((angle < minAngle) ? (minAngle - angle) * 10 : 0);
+        if (cx - pixelWidth / 2 < 0 ||
+            cx + pixelWidth / 2 > renderedTileWidth ||
+            cy - pixelHeight / 2 < 0 ||
+            cy + pixelHeight / 2 > renderedTileHeight) {
+            return -1;
+        }
         for (var i = 0; i < pieces.length; i++) {
             if (contourState[pieces[i]] == majorContourIndexInUse)
-                disqualifyCount++;
-        }
-        if (disqualifyCount) {
-            assert(disqualifyCount > 0);
-            return -disqualifyCount;
+                return -1;
         }
 
         var score = 0;
@@ -374,8 +370,8 @@ var renderTileData = (function() {
         var ry = rotateY(cx, cy, -angle) + pixelHeight / 2;
         renderContext.rotate(angle);
         renderContext.lineWidth = 1;
-        renderContext.strokeStyle = 'rgb(0,0,0)';
-        renderContext.strokeText(text, rx, ry);
+        renderContext.fillStyle = 'rgb(0,0,0)';
+        renderContext.fillText(text, rx, ry);
         renderContext.rotate(-angle);
         addTextLocation(cx, cy, text);
 
@@ -383,10 +379,28 @@ var renderTileData = (function() {
     }
 
     var contourTextSearch = {
-        limit: 50,
+        limit: 20,
         majorContourIndex: majorContourIndexNone,
         searchScore: function(index) {
-            return contourState[index] == contourTextSearch.majorContourIndex ? 1 : 0;
+            return contourState[index] == contourTextSearch.majorContourIndex ? 5 : -1;
+        }
+    };
+
+    var hydrographyTextSearch = {
+        limit: 20,
+        searchScore: function(index) {
+            var h = gridIndexToHeight(index);
+            var w = gridIndexToWidth(index);
+            currentTile().getElevationCoordinate(h, w, coordLL);
+            var x = lonPixel(coordUL.lon);
+            var y = latPixel(coordUL.lat);
+
+            var closestDistance = 1000;
+            for (var i = 0; i < hydrographyX.length; i++) {
+                var distance = Math.abs(hydrographyX[i] - x) + Math.abs(hydrographyY[i] - y);
+                closestDistance = Math.min(closestDistance, distance);
+            }
+            return closestDistance;
         }
     };
 
@@ -400,16 +414,11 @@ var renderTileData = (function() {
         var x = Math.round(xTotal / hydrographyX.length);
         var y = Math.round(yTotal / hydrographyY.length);
 
-        var textPixelWidth = renderContext.measureText(text).width;
-
-        var angle = 0;
-        var rx = rotateX(x, y, -angle) - textPixelWidth / 2;
-        var ry = rotateY(x, y, -angle) + contourTextPixelHeight / 2;
-        renderContext.rotate(angle);
-        renderContext.lineWidth = 1;
-        renderContext.strokeStyle = 'rgb(0,0,0)';
-        renderContext.strokeText(text, rx, ry);
-        renderContext.rotate(-angle);
+        if (!tryRenderText(x, y, 0, text, hydrographyTextPixelHeight, hydrographyTextSearch)) {
+            renderContext.lineWidth = 1;
+            renderContext.fillStyle = 'rgb(0,0,0)';
+            renderContext.fillText("FAILURE", x, y);
+        }
     }
 
     function stopRendering() {
@@ -504,6 +513,7 @@ var renderTileData = (function() {
         }
 
         // Draw hydrography for the tile.
+        renderContext.font = hydrographyTextPixelHeight + 'px ' + hydrographyTextFont;
         while (!hydrographyDecoder.finished()) {
             var tag = hydrographyDecoder.readByte();
             assert(tag == TAG_WATERBODY ||
@@ -560,7 +570,7 @@ var renderTileData = (function() {
         }
 
         // Draw elevation text at major contour lines on the tile.
-        renderContext.font = contourTextPixelHeight + 'px ' + textFont;
+        renderContext.font = contourTextPixelHeight + 'px ' + contourTextFont;
         renderContext.textBaseline = 'bottom';
         for (; contourTextH < 255; contourTextH++) {
             if (stopRendering())
