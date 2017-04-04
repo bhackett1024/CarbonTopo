@@ -99,10 +99,18 @@ var completedPaths = [];
 // Other Stuff
 ///////////////////////////////////////////////////////////////////////////////
 
-function newTile(tile, elevationBuffer, hydrographyBuffer)
+function rejectTile(reason)
 {
-    computeElevationData(tile, elevationBuffer);
-    tile.hydrographyData = hydrographyBuffer ? new Uint8Array(hydrographyBuffer) : null;
+    console.log(reason);
+    tile.fillStyle = "rgb(255,0,0)";
+}
+
+function newTile(data)
+{
+    var tile = data.tile;
+    computeElevationData(tile, data.elv);
+    tile.hydrographyData = data.hyd ? new Uint8Array(data.hyd) : null;
+    tile.featureData = data.ftr ? new Uint8Array(data.ftr) : null;
 
     renderTileData(tile, function(imageUrl) {
         tile.image = new Image();
@@ -111,6 +119,19 @@ function newTile(tile, elevationBuffer, hydrographyBuffer)
             setNeedUpdateScene();
         }
     });
+}
+
+function loadTileZipData(data, zip, fileName)
+{
+    var file = zip.file(fileName);
+    if (file) {
+        data.pending++;
+        file.async("arraybuffer").then(function(buffer) {
+            data[fileName] = buffer;
+            if (--data.pending == 0)
+                newTile(data);
+        }, (e) => rejectTile(data.tile, e));
+    }
 }
 
 function findTile(coords)
@@ -126,17 +147,12 @@ function findTile(coords)
 
     allTiles[file] = tile;
 
-    function reject(reason) {
-        console.log(reason);
-        tile.fillStyle = "rgb(255,0,0)";
-    }
-
     var xhr = new XMLHttpRequest();
     xhr.open('GET', file, true);
     xhr.responseType = 'arraybuffer';
     xhr.onload = function(e) {
         if (this.status != 200) {
-            tile.fillStyle = "rgb(255,0,0)";
+            rejectTile(tile, "Bad HTTP response: " + this.status);
             return;
         }
 
@@ -144,19 +160,13 @@ function findTile(coords)
 
         try {
             JSZip.loadAsync(this.response).then(function(zip) {
-                zip.file("elv").async("arraybuffer").then(function(elevationBuffer) {
-                    var hydro = zip.file("hyd");
-                    if (hydro) {
-                        hydro.async("arraybuffer").then(function(hydrographyBuffer) {
-                            newTile(tile, elevationBuffer, hydrographyBuffer);
-                        });
-                    } else {
-                        newTile(tile, elevationBuffer, null);
-                    }
-                }, reject);
-            }, reject);
+                var data = { tile: tile, pending: 0 };
+                loadTileZipData(data, zip, "elv");
+                loadTileZipData(data, zip, "hyd");
+                loadTileZipData(data, zip, "ftr");
+            }, (e) => { rejectTile(tile, e); });
         } catch (e) {
-            reject(e);
+            rejectTile(tile, e);
         }
     }
     xhr.onerror = function() {
@@ -165,7 +175,7 @@ function findTile(coords)
     try {
         xhr.send();
     } catch (e) {
-        reject(e);
+        rejectTile(tile, e);
     }
 
     return tile;

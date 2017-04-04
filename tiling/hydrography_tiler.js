@@ -136,16 +136,6 @@ function processShapeFile(shapeFile)
     }
 }
 
-function getTileLeftD(lon)
-{
-    return Math.floor(lon / tileD) * tileD;
-}
-
-function getTileBottomD(lat)
-{
-    return Math.floor(lat / tileD) * tileD;
-}
-
 function insertTileBorderPoints(points)
 {
     // Given an ordered series of points, insert new points where the described
@@ -216,8 +206,7 @@ function processFeature(name, pointLists, isPolygon)
         insertTileBorderPoints(points);
     }
 
-    var allTiles = [];
-    var tileIndex = {};
+    var tiles = new TileIndex();
     for (var i = 0; i < pointLists.length; i++) {
         var points = pointLists[i];
 
@@ -234,19 +223,13 @@ function processFeature(name, pointLists, isPolygon)
 
         for (var lon = getTileLeftD(leftD); lon < rightD; lon += tileD) {
             for (var lat = getTileBottomD(bottomD); lat < topD; lat += tileD) {
-                var key = lon + "::" + lat;
-                var tile;
-                if (key in tileIndex) {
-                    tile = tileIndex[key];
-                } else {
-                    tile = tileIndex[key] = { leftD: lon, bottomD: lat, features: [] };
-                    allTiles.push(tile);
-                }
+                var tile = tiles.getTile(leftD, bottomD, function(newTile) { newTile.features = [] });
                 processFeatureTile(points, isPolygon, tile);
             }
         }
     }
 
+    var allTiles = tiles.getAllTiles();
     for (var i = 0; i < allTiles.length; i++)
         allTiles[i].boundingBoxSize = getFeatureBoundingBoxSize(allTiles[i]);
 
@@ -325,13 +308,6 @@ function writeFeature(name, points, leftD, bottomD, tag)
     }
 
     os.file.writeTypedArrayToFile(dstFile, output.toTypedArray());
-}
-
-function getTilePoint(leftD, bottomD, point)
-{
-    var h = Math.round((point.lat - bottomD) / tileD * 255);
-    var w = Math.round((point.lon - leftD) / tileD * 255);
-    return { h:h, w:w };
 }
 
 function processFeatureTile(allPoints, isPolygon, tile)

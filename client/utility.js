@@ -183,8 +183,17 @@ function latlonDistances(latDegrees) {
 // All generated tiles are 2.5 minutes on each side.
 var tileD = 2.5 / 60;
 
+function getTileLeftD(lon)
+{
+    return Math.floor(lon / tileD) * tileD;
+}
+
+function getTileBottomD(lat)
+{
+    return Math.floor(lat / tileD) * tileD;
+}
+
 function tileFile(directory, leftD, topD, suffix) {
-    var tileD = 2.5 / 60;
     var leftIndex = Math.abs(Math.round(leftD / tileD));
     var leftChar = leftD < 0 ? "W" : "E";
     var topIndex = Math.abs(Math.round(topD / tileD));

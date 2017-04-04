@@ -4,8 +4,8 @@
 // Populate a directory of combined tiles, given separate directories for
 // different kinds of tile information.
 
-if (scriptArgs.length != 3) {
-    print("Usage: js combine_tiler.js dstDirectory elevationDirectory hydrographyDirectory");
+if (scriptArgs.length != 4) {
+    print("Usage: js combine_tiler.js dstDirectory elevationDirectory hydrographyDirectory featureDirectory");
     quit();
 }
 
@@ -14,6 +14,7 @@ os.system(`mkdir ${destinationDirectory} 2> /dev/null`);
 
 var elevationDirectory = scriptArgs[1];
 var hydrographyDirectory = scriptArgs[2];
+var featureDirectory = scriptArgs[3];
 
 var tmpFile = "/tmp/tiler" + ((Math.random() * 1000000) | 0);
 var tmpTxt = tmpFile + ".txt";
@@ -27,6 +28,13 @@ var hydrographyContents = snarf(tmpTxt).split('\n');
 var hydrographyIndex = {};
 for (var i = 0; i < hydrographyContents.length; i++)
     hydrographyIndex[hydrographyContents[i]] = true;
+
+os.system(`ls "${featureDirectory}" > ${tmpTxt}`);
+var featureContents = snarf(tmpTxt).split('\n');
+
+var featureIndex = {};
+for (var i = 0; i < featureContents.length; i++)
+    featureIndex[featureContents[i]] = true;
 
 for (var i = 0; i < elevationContents.length; i++) {
     var elevationFile = elevationContents[i];
@@ -44,6 +52,12 @@ for (var i = 0; i < elevationContents.length; i++) {
 	cmd += " hyd";
     }
 
+    var featureFile = baseFile + "ftr";
+    if (featureFile in featureIndex) {
+        os.system(`cp ${featureDirectory}/${featureFile} ftr`);
+        cmd += " ftr";
+    }
+
     os.system(cmd);
-    os.system(`rm elv hyd`);
+    os.system("rm -f elv hyd ftr");
 }

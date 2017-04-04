@@ -30,3 +30,33 @@ function parseBoundary(sourceInfo)
         bottom: parseDegrees(lowerRight[2])
     };
 }
+
+function getTilePoint(leftD, bottomD, point)
+{
+    var h = Math.round((point.lat - bottomD) / tileD * 255);
+    var w = Math.round((point.lon - leftD) / tileD * 255);
+    return { h:h, w:w };
+}
+
+function TileIndex()
+{
+    this.tiles = {};
+}
+
+TileIndex.prototype.getTile = function(leftD, bottomD, initialize)
+{
+    var key = leftD + "::" + bottomD;
+    if (key in this.tiles)
+	return this.tiles[key];
+    var tile = this.tiles[key] = { leftD: leftD, bottomD: bottomD, features: [] };
+    initialize(tile);
+    return tile;
+}
+
+TileIndex.prototype.getAllTiles = function()
+{
+    var res = [];
+    for (key in this.tiles)
+	res.push(this.tiles[key]);
+    return res;
+}

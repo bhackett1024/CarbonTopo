@@ -21,6 +21,8 @@ var waterStrokeStyle = 'rgb(0,0,180)';
 var waterFillStyle = 'rgb(120,120,255)';
 var contourTextPixelHeight = 14;
 var contourTextFont = 'serif';
+var featureTextPixelHeight = 18;
+var featureTextFont = 'serif';
 var hydrographyTextPixelHeight = 18;
 var hydrographyTextFont = 'serif';
 var contourPixelDistanceSame = 400;
@@ -93,11 +95,13 @@ var renderTileData = (function() {
     var backgroundH, contourH, contourTextH, fillAlphaH, drawAlphaH;
     var hydrographyGraphicsDecoder = new Decoder();
     var hydrographyTextDecoder = new Decoder();
+    var featureDecoder = new Decoder();
 
     function resetRenderingState() {
         backgroundH = contourH = contourTextH = fillAlphaH = drawAlphaH = 0;
         hydrographyGraphicsDecoder.reset();
         hydrographyTextDecoder.reset();
+        featureDecoder.reset();
         for (var i = 0; i < textLocations.length; i++)
             textLocationFreelist.push(textLocations[i]);
         textLocations.length = 0;
@@ -472,9 +476,34 @@ var renderTileData = (function() {
         }
     }
 
-    function stopRendering() {
+    function renderFeatureText(className, featureName, h, w)
+    {
+        // Class names which are not shown by default.
+        var ignore = [
+            "Basin",
+            "Dam",
+            "Locale",
+            "Mine",
+            "Valley",
+        ];
+        for (var i = 0; i < ignore.length; i++) {
+            if (ignore[i] == className)
+                return;
+        }
+
+        currentTile().getElevationCoordinate(h, w, coordLL);
+        var x = lonPixel(coordLL.lon);
+        var y = latPixel(coordLL.lat);
+
+        renderContext.lineWidth = 1;
+        renderContext.fillStyle = 'rgb(0,0,0)';
+        renderContext.fillText(featureName, x, y);
+    }
+
+    function stopRendering()
+    {
         // Lazily fill in the start time here. This is a convoluted way of
-        // ensuring we always render at least one row in renderTileWorklist.
+        // ensuring we always make progress in renderTileWorklist.
         if (!renderStartTime) {
             renderStartTime = new Date;
             return false;
@@ -487,7 +516,8 @@ var renderTileData = (function() {
         return false;
     }
 
-    function renderTileWorklist() {
+    function renderTileWorklist()
+    {
         renderStartTime = null;
 
         var tile = worklist[0].tile;
@@ -506,6 +536,9 @@ var renderTileData = (function() {
                 hydrographyGraphicsDecoder.reset(tile.hydrographyData);
                 hydrographyTextDecoder.reset(tile.hydrographyData);
             }
+
+            if (tile.featureData)
+                featureDecoder.reset(tile.featureData);
         }
 
         // Fill in the background color for each piece of the grid.
@@ -602,6 +635,18 @@ var renderTileData = (function() {
             if (data.tag != TAG_WATERBODY_INTERIOR)
                 renderContext.stroke();
 
+            if (stopRendering())
+                return;
+        }
+
+        // Label point features on the tile.
+        renderContext.font = featureTextPixelHeight + 'px ' + featureTextFont;
+        while (!featureDecoder.finished()) {
+	    var className = featureDecoder.readString();
+            var featureName = featureDecoder.readString();
+            var h = featureDecoder.readByte();
+            var w = featureDecoder.readByte();
+            renderFeatureText(className, featureName, h, w);
             if (stopRendering())
                 return;
         }
